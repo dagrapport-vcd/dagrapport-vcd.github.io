@@ -218,6 +218,21 @@ def main():
         print("--- EINDE DIAGNOSE-ONLY (data/zoom-calls.json NIET geschreven) ---")
         return
 
+    if not QUEUE_DID:
+        # Nieuwe klant waarvan de Zoom-wachtrij nog niet is ingesteld: niets wegschrijven en niet laten
+        # falen, maar wel laten zien welke lijnen er zijn zodat zoom.queueDid / zoom.queueExt te kiezen zijn.
+        print("Zoom-wachtrij is nog niet ingesteld (client.config.json: zoom.queueDid) -- geen data weggeschreven.")
+        lijnen = {}
+        for log in logs:
+            if (log.get('direction') or '').lower() == 'inbound':
+                k = (log.get('callee_name'), log.get('callee_ext_number'), log.get('callee_did_number'))
+                lijnen[k] = lijnen.get(k, 0) + 1
+        print("Binnenkomende oproepen per lijn/wachtrij op dit Zoom-account (kies de juiste voor deze klant):")
+        for (naam, ext, did), n in sorted(lijnen.items(), key=lambda x: -x[1]):
+            print(f"  {n:4d}x  {naam!r}  ext {ext}  nummer {did}")
+        print("Vul daarna in met: python3 tools/new_client.py koppel --zoom-did <nummer> --zoom-ext <ext>")
+        return
+
     # Filter op de klant-helpdesk-lijn (zie BEVINDING 25 aug 2026
     # hierboven). Alles hierna (result_counts, queue_counts, missed/outbound)
     # werkt bewust op de GEFILTERDE lijst.

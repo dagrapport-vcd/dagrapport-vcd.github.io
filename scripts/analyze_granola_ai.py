@@ -367,6 +367,9 @@ def find_zoho_match(tijdstip, zoho_tickets, window_minutes=25):
 
 
 def main():
+    if not FOLDER_NAME:
+        print("Granola-map is nog niet ingesteld (client.config.json: granolaMap) -- analyse overgeslagen.")
+        return
     if not GRANOLA_TOKEN:
         print("ERROR: GRANOLA_API_KEY not set")
         raise SystemExit(1)

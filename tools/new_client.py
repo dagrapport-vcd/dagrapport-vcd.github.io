@@ -14,6 +14,9 @@ Gebruik
       Na het wijzigen van client.config.json: config en logo opnieuw in index.html zetten.
   python3 tools/new_client.py check [MAP]
       Laat zien welke configvelden nog moeten worden ingevuld.
+  python3 tools/new_client.py koppel [MAP] --zoom-did +31... --zoom-ext 8xx --granola-map "Naam" [...]
+      Vult gegevens in zodra je ze hebt (alles optioneel, in willekeurige combinatie): past de config aan,
+      zet die in index.html en ververst CHECKLIST.md. Duurt een paar seconden. --help toont alle opties.
 """
 import argparse
 import html as htmllib
@@ -195,8 +198,21 @@ def checklist(cfg):
     repo = cfg['repo'].get('naam') or 'REPO'
     return f'''# Checklist {cfg['naam']}
 
-Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `TODO` of een lege waarde in
-(`python3 tools/new_client.py check` laat zien welke nog open staan) en draai daarna
+## Snel invullen zodra je de gegevens hebt
+Alles in een keer (elk onderdeel is optioneel, je kunt het ook in delen doen); duurt een paar seconden:
+```bash
+python3 tools/new_client.py koppel \\
+  --zoom-did "+31..." --zoom-ext "8.." --granola-map "Naam van de Granola-map" \\
+  --repo "eigenaar/repo-naam" --supabase-url "https://....supabase.co" --supabase-key "sb_publishable_..." \\
+  --team "Naam <mail@domein.nl>; Naam2 <mail2@domein.nl>" --management "a@domein.nl,b@domein.nl" \\
+  --bedrijfsregels-bestand regels.txt --commit
+```
+`python3 tools/new_client.py check` laat zien wat nog open staat. Weet je het Zoom-nummer nog niet? Draai eenmaal de workflow
+"Diagnose Zoom call history": die toont in de log alle lijnen op het Zoom-account met hun nummer en extensie.
+Zolang iets nog niet is ingesteld slaan de scripts het netjes over (de runs falen niet en er wordt niets weggeschreven).
+
+## Handmatig in client.config.json
+Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `TODO` of een lege waarde in en draai daarna
 `python3 tools/new_client.py sync-config`.
 
 ## 1. GitHub
@@ -312,6 +328,82 @@ def cmd_sync(a):
     print('Config en logo zijn opnieuw in index.html gezet.')
 
 
+def parse_team(tekst):
+    """'Naam <mail>; Naam2 <mail2>' of 'Naam=mail; ...' -> [{'naam':..,'email':..}]"""
+    out = []
+    for deel in re.split(r'[;\n]+', tekst):
+        deel = deel.strip()
+        if not deel:
+            continue
+        m = re.fullmatch(r'(.+?)\s*<([^>]+)>', deel) or re.fullmatch(r'(.+?)\s*=\s*(\S+@\S+)', deel)
+        if not m:
+            sys.exit(f'FOUT: kan teamlid niet lezen: "{deel}" (gebruik: Naam <mail@domein.nl>; Naam2 <mail2@domein.nl>)')
+        out.append({'naam': m.group(1).strip(), 'email': m.group(2).strip().lower()})
+    return out
+
+
+def cmd_koppel(a):
+    out = os.path.abspath(a.map)
+    path = os.path.join(out, 'client.config.json')
+    cfg = load_cfg(path)
+    gedaan = []
+
+    def zet(sectie, sleutel, waarde, label):
+        if waarde is None:
+            return
+        if sectie:
+            cfg.setdefault(sectie, {})[sleutel] = waarde
+        else:
+            cfg[sleutel] = waarde
+        gedaan.append(label)
+
+    zet('zoom', 'queueDid', a.zoom_did, 'Zoom-nummer')
+    zet('zoom', 'queueExt', a.zoom_ext, 'Zoom-extensie')
+    zet(None, 'granolaMap', a.granola_map, 'Granola-map')
+    zet('supabase', 'url', a.supabase_url, 'Supabase-URL')
+    zet('supabase', 'anonKey', a.supabase_key, 'Supabase-sleutel')
+    zet('zoho', 'regio', a.zoho_regio, 'Zoho-regio')
+    zet('doorverwijzing', 'naam', a.doorverwijzing, 'naam van de doorverwijzing')
+    if a.repo:
+        if '/' not in a.repo:
+            sys.exit('FOUT: --repo moet de vorm eigenaar/naam hebben, bijvoorbeeld VCD-Org/dagrapport')
+        eigenaar, naam = a.repo.split('/', 1)
+        cfg['repo'] = {'owner': eigenaar, 'naam': naam}
+        gedaan.append('GitHub-repo')
+        if a.pages_url is None:
+            cfg['pagesUrl'] = f'https://{eigenaar.lower()}.github.io/{naam}/'
+            gedaan.append('site-URL (afgeleid uit de repo)')
+    zet(None, 'pagesUrl', a.pages_url, 'site-URL')
+    if a.team:
+        cfg['team'] = parse_team(a.team)
+        cfg.pop('avatars', None)
+        gedaan.append(f"team ({len(cfg['team'])} personen)")
+    if a.management:
+        cfg['managementEmails'] = [x.strip().lower() for x in re.split(r'[,;\s]+', a.management) if x.strip()]
+        gedaan.append('management-adressen')
+    if a.bedrijfsregels_bestand:
+        cfg.setdefault('prompt', {})['bedrijfsregels'] = read(a.bedrijfsregels_bestand).strip()
+        gedaan.append('bedrijfsregels')
+
+    if not gedaan:
+        print('Niets opgegeven om in te vullen. Gebruik --help voor de opties.')
+    else:
+        write(path, json.dumps(cfg, ensure_ascii=False, indent=2) + '\n')
+        sync_index(out, cfg)
+        write(os.path.join(out, 'CHECKLIST.md'), checklist(cfg))
+        print('Ingevuld: ' + ', '.join(gedaan) + '.')
+        if a.commit:
+            subprocess.run(['git', 'add', '-A'], cwd=out, check=True)
+            subprocess.run(['git', '-c', 'user.name=Dagrapport Generator', '-c', 'user.email=bot@htjz.nl', 'commit', '-q', '-m',
+                            'Klantgegevens ingevuld: ' + ', '.join(gedaan)], cwd=out, check=True)
+            print('Gecommit.')
+    todo = todo_fields(cfg)
+    if todo:
+        print('Nog open in client.config.json:\n  - ' + '\n  - '.join(todo))
+    else:
+        print('Alle verplichte velden zijn ingevuld. Resterend: secrets in GitHub en de cron-job.org-job (zie CHECKLIST.md).')
+
+
 def cmd_check(a):
     out = os.path.abspath(a.map)
     todo = todo_fields(load_cfg(os.path.join(out, 'client.config.json')))
@@ -329,6 +421,21 @@ def main():
     c.set_defaults(fn=cmd_create)
     u = sub.add_parser('update'); u.add_argument('map'); u.add_argument('--template', default=DEFAULT_TEMPLATE); u.set_defaults(fn=cmd_update)
     s = sub.add_parser('sync-config'); s.add_argument('map', nargs='?', default='.'); s.set_defaults(fn=cmd_sync)
+    q = sub.add_parser('koppel', help='gegevens invullen zodra je ze hebt')
+    q.add_argument('map', nargs='?', default='.')
+    q.add_argument('--zoom-did', help='telefoonnummer van de Zoom-wachtrij, bv. +31201234567')
+    q.add_argument('--zoom-ext', help='extensienummer van de wachtrij, bv. 812')
+    q.add_argument('--granola-map', help='exacte naam van de Granola-map met de gesprekken')
+    q.add_argument('--repo', help='GitHub-repo als eigenaar/naam (site-URL wordt afgeleid)')
+    q.add_argument('--pages-url', help='site-URL, alleen nodig als die afwijkt van eigenaar.github.io/naam/')
+    q.add_argument('--supabase-url'); q.add_argument('--supabase-key', help='de publishable key (begint met sb_publishable_ of eyJ)')
+    q.add_argument('--zoho-regio', help='eu, com, in, com.au, jp ...')
+    q.add_argument('--team', help='"Naam <mail>; Naam2 <mail2>"')
+    q.add_argument('--management', help='e-mailadressen met managementtoegang, gescheiden door komma')
+    q.add_argument('--doorverwijzing', help='hoe de partij heet waar naar wordt doorverwezen')
+    q.add_argument('--bedrijfsregels-bestand', help='tekstbestand met de regels van de klant voor de AI-analyse')
+    q.add_argument('--commit', action='store_true', help='daarna meteen committen')
+    q.set_defaults(fn=cmd_koppel)
     k = sub.add_parser('check'); k.add_argument('map', nargs='?', default='.'); k.set_defaults(fn=cmd_check)
     a = ap.parse_args()
     a.fn(a)

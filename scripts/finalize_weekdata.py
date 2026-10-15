@@ -138,6 +138,9 @@ def main():
     if not date_key:
         print('data/today.json heeft geen "date" veld, sla over.')
         return
+    if not day.get('generated_at'):
+        print('data/today.json is nog de lege beginstand (er is nog geen analyse gedraaid), sla over.')
+        return
 
     with open(INDEX_PATH, 'r', encoding='utf-8') as f:
         content = f.read()
