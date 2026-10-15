@@ -18,9 +18,9 @@ Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `
 `python3 tools/new_client.py sync-config`.
 
 ## 1. GitHub
-- [ ] Maak een **eigen** repo (liefst onder een eigen organisatie, niet onder die van een andere klant): `OWNER/REPO`
+- [ ] Maak een **eigen** repo (liefst onder een eigen organisatie, niet onder die van een andere klant): `jackie24-3/dagrapport-vcd`
 - [ ] Push deze map naar `main` en zet GitHub Pages aan (Settings > Pages > Deploy from branch > main, / root)
-- [ ] Zet de URL van de site in `pagesUrl` (nu ``)
+- [ ] Zet de URL van de site in `pagesUrl` (nu `https://jackie24-3.github.io/dagrapport-vcd/`)
 
 ## 2. Inloggen (Supabase), een **eigen project per klant**
 - [ ] Maak een nieuw Supabase-project. Deel het NIET met een andere klant: iedereen met een account in een project kan het bijbehorende dashboard openen.
@@ -43,7 +43,7 @@ Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `
 
 ## 5. Elke 10 minuten laten draaien (cron-job.org)
 GitHub's eigen `schedule` is onbetrouwbaar. Maak op cron-job.org een job:
-- URL: `https://api.github.com/repos/OWNER/REPO/actions/workflows/update-dagrapport.yml/dispatches`
+- URL: `https://api.github.com/repos/jackie24-3/dagrapport-vcd/actions/workflows/update-dagrapport.yml/dispatches`
 - Methode POST, headers `Authorization: Bearer <fine-grained token, alleen deze repo, Actions: write>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
 - Body `{"ref": "main"}`, schema `*/10 7-18 * * 1-5` (Europe/Amsterdam)
 

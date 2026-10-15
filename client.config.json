@@ -12,10 +12,10 @@
     "hoogte": 28,
     "loginHoogte": 34
   },
-  "pagesUrl": "",
+  "pagesUrl": "https://jackie24-3.github.io/dagrapport-vcd/",
   "repo": {
-    "owner": "",
-    "naam": ""
+    "owner": "jackie24-3",
+    "naam": "dagrapport-vcd"
   },
   "supabase": {
     "url": "",
