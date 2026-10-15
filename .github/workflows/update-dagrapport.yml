@@ -10,7 +10,7 @@ on:
     # "elk half uur" schema (0,30) draaide dit in de praktijk maandenlang effectief
     # maar ~1x per 4 uur i.p.v. elke 30 min -- dit is geen garantie, alleen een
     # verbetering.
-    - cron: '3,13,23,33,43,53 5-16 * * 1-5'
+    - cron: '0 0 31 2 *'  # DEMO-UIT: origineel '3,13,23,33,43,53 5-16 * * 1-5'
   workflow_dispatch:   # Handmatig triggeren vanuit GitHub
     inputs:
       datum:

@@ -1445,7 +1445,7 @@ a:focus-visible,
 
 <script>
 // ===== KLANTCONFIG (gegenereerd uit client.config.json; niet met de hand aanpassen -- zie tools/new_client.py --sync-config) =====
-const CLIENT = /*CLIENT_CONFIG_START*/{"id":"vcd","naam":"Van Campen & Dijkstra","pagesUrl":"","repo":{"owner":"","naam":""},"supabase":{"url":"","anonKey":""},"gemisteOproepenDomeinen":["htjz.nl"],"medewerkerDomeinen":["htjz.nl","juridische-check.nl"],"managementEmails":["jackiestam@htjz.nl","edgarstam@htjz.nl"],"team":[],"aliassen":{},"doorverwijzing":{"naam":"rechtsbijstand","toelichting":"","zohoLabel":"","mailDomein":""},"topMedewerkerLabel":"Meeste gesprekken","weekNormen":{"doorverwijzing":0,"gesprekken":0},"doorverwijzingHistorie":{},"verkeerdVerbondenBackfill":{}}/*CLIENT_CONFIG_END*/;
+const CLIENT = /*CLIENT_CONFIG_START*/{"id":"vcd","naam":"Van Campen & Dijkstra","pagesUrl":"","repo":{"owner":"","naam":""},"supabase":{"url":"","anonKey":""},"gemisteOproepenDomeinen":["htjz.nl"],"medewerkerDomeinen":["htjz.nl","juridische-check.nl"],"managementEmails":["jackiestam@htjz.nl","edgarstam@htjz.nl"],"team":[],"aliassen":{},"doorverwijzing":{"naam":"rechtsbijstand","toelichting":"","zohoLabel":"","mailDomein":""},"topMedewerkerLabel":"Meeste gesprekken","weekNormen":{"doorverwijzing":0,"gesprekken":0},"doorverwijzingHistorie":{},"verkeerdVerbondenBackfill":{},"demo":true}/*CLIENT_CONFIG_END*/;
 const DV = CLIENT.doorverwijzing.naam;
 const DV_TOELICHTING = CLIENT.doorverwijzing.toelichting || '';
 const STAFF_BY_LOCAL = Object.fromEntries(CLIENT.team.map(t => [t.email.split('@')[0].toLowerCase().replace(/[^a-z]/g, ''), t.naam]));
@@ -3073,6 +3073,7 @@ function escapeHtml(str) {
 }
 
 async function loadLiveToday() {
+  if (CLIENT.demo) return;  // demo: gegevens komen uit applyDemoData()
   try {
     const resp = await fetch('data/today.json?t=' + Date.now());
     if (!resp.ok) return;
@@ -3111,6 +3112,7 @@ async function loadLiveToday() {
 
 let zohoTicketsToday = [];
 async function loadZohoTickets() {
+  if (CLIENT.demo) return;  // demo: gegevens komen uit applyDemoData()
   try {
     const resp = await fetch('data/zoho-tickets.json?t=' + Date.now());
     if (!resp.ok) return;
@@ -3127,6 +3129,7 @@ async function loadZohoTickets() {
 }
 
 async function loadZoomCalls() {
+  if (CLIENT.demo) return;  // demo: gegevens komen uit applyDemoData()
   try {
     const resp = await fetch('data/zoom-calls.json?t=' + Date.now());
     if (!resp.ok) return;
@@ -3142,6 +3145,7 @@ async function loadZoomCalls() {
 }
 
 async function loadZoomHistory() {
+  if (CLIENT.demo) return;  // demo: gegevens komen uit applyDemoData()
   try {
     const resp = await fetch('data/zoom-history.json?t=' + Date.now());
     if (!resp.ok) return;
@@ -3153,6 +3157,7 @@ async function loadZoomHistory() {
 }
 
 async function loadZohoTicketHistory() {
+  if (CLIENT.demo) return;  // demo: gegevens komen uit applyDemoData()
   try {
     const resp = await fetch('data/zoho-ticket-history.json?t=' + Date.now());
     if (!resp.ok) return;
@@ -3244,11 +3249,208 @@ setTimeout(() => {
   }
 }, 20000);
 
+// ======================== DEMO-MODUS ========================
+// Voor presentaties aan nieuwe klanten (client.config.json: "demo": true): geen inlog, en alle gegevens worden hier bij
+// het openen gegenereerd uit een vast patroon, relatief aan vandaag, zodat de demo er altijd actueel uitziet (vandaag,
+// deze week, laatste 3 maanden). ALLES is verzonnen. Nooit aanlaten voor een klant met echte data:
+// `python3 tools/new_client.py demo --uit` (en `koppel` met echte gegevens zet de demo automatisch uit).
+const DEMO_TEAM = [
+  { naam: 'Sanne Verhoeven', email: 'sanne.verhoeven@voorbeeld.nl' },
+  { naam: 'Daan Mulder', email: 'daan.mulder@voorbeeld.nl' },
+  { naam: 'Femke Bosman', email: 'femke.bosman@voorbeeld.nl' },
+  { naam: 'Thijs Hendriks', email: 'thijs.hendriks@voorbeeld.nl' },
+  { naam: 'Lotte Kramer', email: 'lotte.kramer@voorbeeld.nl' },
+];
+const DEMO_BANK = {
+  opgelost: [
+    ['tag-consument', 'Consumentenrecht', 'Wasmachine defect binnen de garantietermijn', 'Verzekerde meldt dat de wasmachine na acht maanden stuk is en de winkel niet reageert. Uitgelegd dat de verkoper aansprakelijk is voor non-conformiteit en hoe een ingebrekestelling werkt; verzekerde stuurt deze zelf.'],
+    ['tag-huur', 'Huurrecht', 'Borg niet terugbetaald na verhuizing', 'De verhuurder houdt de borg ruim na de wettelijke termijn vast. Verzekerde krijgt een voorbeeldbrief met sommatie en de termijn waarbinnen de verhuurder moet betalen.'],
+    ['tag-arbeidsrecht', 'Arbeidsrecht', 'Vakantiedagen bij einde dienstverband', 'Vraag over uitbetaling van opgebouwde vakantiedagen na ontslag. Wettelijke en bovenwettelijke dagen uitgelegd, en dat de werkgever een specificatie moet geven.'],
+    ['tag-overig', 'Burenrecht', 'Overhangende takken en erfgrens', 'Verzekerde heeft last van de boom van de buren. Uitleg over het recht om overhangende takken af te snijden na een schriftelijke sommatie.'],
+    ['tag-consument', 'Consumentenrecht', 'Webshop levert niet, geld nog niet teruggestort', 'Bestelling na drie weken nog niet geleverd. Besproken hoe verzekerde een laatste termijn stelt en daarna kan ontbinden en terugbetaling eist.'],
+    ['tag-overig', 'Verkeersrecht', 'Schade na aanrijding, schuldvraag onduidelijk', 'Beller was betrokken bij een kleine aanrijding op een rotonde. Uitleg over het invullen van het schadeformulier en waarom het belangrijk is geen schuld te erkennen.'],
+    ['tag-huur', 'Huurrecht', 'Huurverhoging betwist', 'Verhuurder kondigt een verhoging van 8% aan. Uitgelegd welke maximale verhoging geldt en hoe verzekerde binnen de termijn bezwaar maakt.'],
+  ],
+  terugbel: [
+    ['tag-arbeidsrecht', 'Arbeidsrecht', 'Vaststellingsovereenkomst ontvangen, beslistermijn loopt', 'Verzekerde kreeg een VSO van de werkgever en vraagt of het bedrag redelijk is. Stukken ontbreken; afgesproken dat er morgen wordt teruggebeld nadat ze zijn gemaild.'],
+    ['tag-bouw', 'Bouwrecht', 'Verbouwing: meerwerk niet afgesproken', 'De aannemer brengt meerwerk in rekening dat niet schriftelijk is overeengekomen. Contract en offerte worden opgevraagd, daarna volgt een terugbelafspraak.'],
+    ['tag-overig', 'Verzekeringsrecht', 'Dekking polis nog niet te beoordelen', 'Polisnummer niet gevonden in het systeem. Beller belt terug zodra de polisgegevens zijn gecontroleerd.'],
+    ['tag-consument', 'Consumentenrecht', 'Reisorganisatie weigert vergoeding', 'Vakantie voldeed niet aan de omschrijving. Foto\'s en correspondentie worden nagestuurd; terugbelafspraak voor het advies.'],
+  ],
+  brandmeester: [
+    ['tag-arbeidsrecht', 'Arbeidsrecht', 'Ontslag op staande voet', 'Verzekerde is op staande voet ontslagen en betwist de reden. Direct doorverwezen vanwege de korte termijnen; schadenummer aangevraagd en dossier overgedragen.'],
+    ['tag-bouw', 'Bouwrecht', 'Aannemer weigert herstel na oplevering', 'Na oplevering blijken er lekkages in de nieuwe dakopbouw; schade ruim boven de drempel. Doorverwezen met alle stukken en een schadenummer.'],
+    ['tag-huur', 'Huurrecht', 'Ontruiming dreigt, huurachterstand betwist', 'De verhuurder dreigt met een gerechtelijke procedure. Vanwege de termijnen direct doorverwezen en de zaak overgedragen.'],
+    ['tag-bestuursrecht', 'Bestuursrecht', 'Bezwaar tegen omgevingsvergunning buren', 'Verzekerde wil bezwaar maken tegen een vergunning voor een dakkapel van de buren. Bezwaartermijn loopt; doorverwezen met een deadline.'],
+    ['tag-overig', 'Erfrecht', 'Geschil over verdeling nalatenschap', 'Erfgenamen verschillen van mening over de verdeling. Complexe zaak met meerdere partijen; doorverwezen voor verdere behandeling.'],
+  ],
+  geenDekking: [
+    ['tag-overig', 'Verzekeringsrecht', 'Geschil valt buiten de polis', 'Het conflict ontstond voor de ingangsdatum van de verzekering. Uitgelegd waarom er geen dekking is en welke andere mogelijkheden er zijn.'],
+    ['tag-consument', 'Consumentenrecht', 'Schade onder de franchise', 'Het bedrag van het geschil is lager dan het eigen risico. Geen dekking, maar wel uitleg hoe verzekerde zelf een brief kan opstellen.'],
+    ['tag-overig', 'Familierecht', 'Echtscheidingsvraag, niet gedekt', 'Verzekerde vraagt naar bijstand bij een scheiding; dat is uitgesloten van de dekking. Doorverwezen naar het juridisch loket.'],
+  ],
+  afkoop: [
+    ['tag-huur', 'Huurrecht', 'Borgvordering: minnelijke regeling bereikt', 'De verhuurder houdt een deel van de borg in. Er is een regeling getroffen en de vergoeding wordt afgehandeld; verzekerde ontvangt een bevestiging.'],
+    ['tag-consument', 'Consumentenrecht', 'Garantiezaak opgelost met afkoopbedrag', 'Verzekerde en verkoper komen een bedrag overeen als finale kwijting. Schriftelijke bevestiging afgesproken.'],
+  ],
+  verkeerd: [
+    ['tag-overig', 'Routering', 'Verkeerd nummer: vraag over autoverzekering', 'Beller heeft een vraag over zijn autoverzekering en zit niet bij de juridische helpdesk. Doorverwezen naar de juiste afdeling, geen juridische vraag.'],
+    ['tag-overig', 'Routering', 'Verkeerde afdeling: premievraag', 'Vraag over een premie-incasso, geen juridische kwestie. Beller verwezen naar de klantenservice.'],
+    ['tag-overig', 'Routering', 'Verkeerd doorverbonden: schademelding', 'Beller wil een schade melden bij zijn inboedelverzekering. Doorverwezen naar het schadeloket.'],
+  ],
+};
+const DEMO_GOED = ['Polis en identiteit zijn bij vrijwel alle gesprekken direct gecontroleerd.', 'Duidelijke deadlines en vervolgstappen genoemd bij de doorverwijzingen.', 'Empathisch en praktisch advies bij een emotioneel gesprek over ontslag.', 'Dekkingscontrole (franchise, uitsluitingen) zorgvuldig vastgelegd.', 'Korte, heldere uitleg, geen juridisch jargon.'];
+const DEMO_BETER = ['Bij een terugbelafspraak was geen concreet tijdstip afgesproken.', 'Eén gesprek is zonder samenvattende afronding beëindigd.', 'Polischeck kwam pas halverwege het gesprek, liever aan het begin.', 'Bij een doorverwijzing is het schadenummer niet direct genoteerd.'];
+const DEMO_TICKET_ONDERWERPEN = ['Vraag over opzegging abonnement', 'Verzoek om dossier door te sturen', 'Opvolging na telefoongesprek', 'Aanvullende stukken bij ontslagzaak', 'Verzoek schadenummer', 'Vraag over franchise', 'Klacht over aannemer, foto\'s toegevoegd', 'Verhuurder reageert niet, wat nu?', 'Bevestiging doorverwijzing gevraagd', 'Vraag over polisvoorwaarden'];
+const DEMO_KLANTEN = ['Familie De Boer', 'Mevrouw Visser', 'Dhr. Van Dijk', 'Mevrouw Smit', 'Dhr. Peters', 'Familie Jacobs', 'Mevrouw Brouwer', 'Dhr. Dekker', 'Mevrouw Maas', 'Dhr. Willems'];
+
+function _demoRng(seed) {
+  let h = 1779033703 ^ seed.length;
+  for (let i = 0; i < seed.length; i++) { h = Math.imul(h ^ seed.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  let a = h >>> 0;
+  return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function _demoPick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
+function _demoPad(n) { return String(n).padStart(2, '0'); }
+function _demoTime(min) { return _demoPad(Math.floor(min / 60)) + ':' + _demoPad(min % 60); }
+
+function _demoDay(dateStr, nowMin) {
+  const rng = _demoRng('dag:' + dateStr);
+  const dow = new Date(dateStr + 'T12:00:00').getDay();
+  const n0 = 5 + Math.floor(rng() * 9) + ((dow === 1 || dow === 2) ? 2 : 0);
+  const mins = new Set();
+  while (mins.size < n0) mins.add(540 + Math.floor(rng() * 480)); // 09:00 - 17:00
+  let tijden = [...mins].sort((a, b) => a - b);
+  if (nowMin !== null) tijden = tijden.filter(m => m <= nowMin);
+  const gewichten = [['opgelost', 45], ['brandmeester', 20], ['terugbel', 14], ['verkeerd', 12], ['geenDekking', 6], ['afkoop', 3]];
+  const totaalGew = gewichten.reduce((s, g) => s + g[1], 0);
+  const teamGew = [26, 22, 20, 18, 14];
+  const kiesTeam = () => { let r = rng() * 100, i = 0; while (i < teamGew.length - 1 && r > teamGew[i]) { r -= teamGew[i]; i++; } return DEMO_TEAM[i].naam; };
+  const stats = { opgelost: 0, brandmeester: 0, afkoop: 0, terugbel: 0, geenDekking: 0, verkeerdNummer: 0 };
+  const code = { opgelost: 'outcome-opgelost', terugbel: 'outcome-terugbel', brandmeester: 'outcome-brandmeester', afkoop: 'outcome-afkoop', geenDekking: 'outcome-geen-dekking', verkeerd: 'outcome-verkeerd' };
+  const label = { opgelost: 'Telefonisch opgelost', terugbel: 'Terugbellen', brandmeester: 'Doorverwezen naar ' + DV, afkoop: 'Afkoop', geenDekking: 'Geen dekking', verkeerd: 'Verkeerd nummer' };
+  const conversations = [], acties = [], gebruikt = new Set();
+  tijden.forEach(m => {
+    let r = rng() * totaalGew, soort = 'opgelost';
+    for (const [s, w] of gewichten) { if (r < w) { soort = s; break; } r -= w; }
+    const bank = DEMO_BANK[soort].filter(x => !gebruikt.has(x[2]));
+    const t = _demoPick(rng, bank.length ? bank : DEMO_BANK[soort]);
+    gebruikt.add(t[2]);
+    const wie = kiesTeam();
+    if (soort === 'verkeerd') stats.verkeerdNummer++; else stats[soort]++;
+    conversations.push({
+      tijd: _demoTime(m), titel: t[2], personen: 'Verzekerde: anoniem · ' + wie + ' | Juridisch Medewerker', samenvatting: t[3],
+      tags: [[t[0], t[1]]], uitkomst: [code[soort], label[soort]],
+      terugbel: soort === 'terugbel', verkeerdVerbonden: soort === 'verkeerd', rechtsbijstandVerwijzing: soort === 'brandmeester',
+      adviesGegeven: soort === 'opgelost' || soort === 'geenDekking' || soort === 'afkoop', identiteitGeverifieerd: soort === 'verkeerd' ? false : rng() < 0.9,
+    });
+    if (soort === 'terugbel') acties.push({ prio: 'prio-middel', tekst: 'Terugbellen: ' + t[2], eigenaar: wie, deadline: 'dl-soon', deadlineTekst: 'Binnen 24 uur' });
+  });
+  const n = conversations.length;
+  const score = n ? Math.round((6.0 + rng() * 2.4) * 10) / 10 : 0;
+  const goed = [_demoPick(rng, DEMO_GOED), _demoPick(rng, DEMO_GOED)].filter((x, i, a) => a.indexOf(x) === i);
+  const beter = [_demoPick(rng, DEMO_BETER), _demoPick(rng, DEMO_BETER)].filter((x, i, a) => a.indexOf(x) === i);
+  return {
+    drukte: n >= 6 ? 'druk' : n >= 4 ? 'matig' : 'rustig', gesprekken: n, stats, score, conversations, acties,
+    analyse: n ? { goed, beter } : { goed: [], beter: [] },
+  };
+}
+
+function _demoZoomDay(dateStr, nowMin, nGesprekken, isToday) {
+  const rng = _demoRng('zoom:' + dateStr);
+  const extra = Math.floor(rng() * 4);
+  const beantwoord = nGesprekken + (nowMin === null ? extra : 0);
+  const aantalGemist = Math.max(nowMin === null ? 1 : 0, Math.round((beantwoord + 2) * (0.12 + rng() * 0.3)));
+  const pool = Array.from({ length: 14 }, (_, i) => '+316000' + String(10 + i * 7).padStart(5, '0'));
+  const mins = [];
+  while (mins.length < aantalGemist) { const m = 540 + Math.floor(rng() * 480); if (nowMin === null || m <= nowMin) mins.push(m); else if (rng() < 0.5) break; }
+  mins.sort((a, b) => a - b);
+  const gemist = mins.map(m => ({ nummer: _demoPick(rng, pool), naam: 'Onbekend', tijd: _demoTime(m), callResult: rng() < 0.6 ? 'abandoned' : 'overflowed', teruggebeld: rng() < (isToday ? 0.45 : 0.82) }));
+  const niet = gemist.filter(x => !x.teruggebeld);
+  const agenten = {};
+  let rest = beantwoord;
+  DEMO_TEAM.forEach((t, i) => {
+    const deel = i === DEMO_TEAM.length - 1 ? rest : Math.min(rest, Math.round(beantwoord * [0.3, 0.24, 0.2, 0.16][i] * (0.8 + rng() * 0.4)));
+    rest -= deel;
+    agenten[t.naam] = { beantwoord: deel, uitgaand: Math.floor(rng() * 5), gesprekstijdSec: deel * (180 + Math.floor(rng() * 240)) };
+  });
+  return {
+    date: dateStr, totaalInbound: beantwoord + gemist.length, totaalGemist: gemist.length, terugGebeld: gemist.length - niet.length,
+    nietTerugGebeld: niet.length, nietTerugGebeldNummers: niet, alleGemistNummers: gemist, agenten,
+  };
+}
+
+function applyDemoData() {
+  Object.keys(weekData).forEach(k => delete weekData[k]);
+  // Team: verzonnen medewerkers (de afgeleide opzoeklijsten bijwerken)
+  CLIENT.team = DEMO_TEAM.slice();
+  Object.keys(STAFF_BY_LOCAL).forEach(k => delete STAFF_BY_LOCAL[k]);
+  STAFF_NAMES.clear();
+  Object.keys(CLIENT_EMAIL_BY_NAME).forEach(k => delete CLIENT_EMAIL_BY_NAME[k]);
+  DEMO_TEAM.forEach(t => {
+    STAFF_BY_LOCAL[t.email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '')] = t.naam;
+    STAFF_NAMES.add(t.naam);
+    CLIENT_EMAIL_BY_NAME[t.naam] = t.email;
+  });
+  const nu = new Date();
+  const nowMin = nu.getHours() * 60 + nu.getMinutes();
+  const vandaag = dateKey(nu);
+  let open = 22, wacht = 9;
+  const dagenTerug = Math.max(125, Math.round((nu - new Date(nu.getFullYear(), 0, 1)) / 86400000) + 1);  // minstens tot 1 januari, voor de YTD-weergave
+  for (let i = dagenTerug; i >= 0; i--) {
+    const d = new Date(nu); d.setDate(nu.getDate() - i);
+    const dow = d.getDay(); if (dow === 0 || dow === 6) continue;
+    const k = dateKey(d), isToday = k === vandaag;
+    const dag = _demoDay(k, isToday ? nowMin : null);
+    if (dag.gesprekken > 0) weekData[k] = dag;
+    zoomHistory[k] = _demoZoomDay(k, isToday ? nowMin : null, dag.gesprekken, isToday);
+    const r = _demoRng('tick:' + k);
+    const nieuw = 2 + Math.floor(r() * 5), dicht = 1 + Math.floor(r() * 5);
+    open = Math.max(14, Math.min(34, open + nieuw - dicht)); wacht = Math.max(5, Math.min(14, wacht + Math.floor(r() * 3) - 1));
+    zohoTicketHistory[k] = { nieuweVandaag: nieuw, geslotenVandaag: dicht, totaalOpen: open, inDeWacht: wacht, capBereikt: false };
+    if (isToday) {
+      const rt = _demoRng('tickets:' + k), kanalen = ['Email', 'Phone', 'Web'];
+      zohoTicketsToday = Array.from({ length: nieuw }, (_, j) => {
+        const kanaal = _demoPick(rt, kanalen);
+        return { ticketNumber: String(4100 + j), tijd: _demoTime(555 + j * 47 + Math.floor(rt() * 30)), titel: _demoPick(rt, DEMO_TICKET_ONDERWERPEN), klant: _demoPick(rt, DEMO_KLANTEN), status: j % 3 === 0 ? 'In behandeling' : 'Open', prioriteit: rt() < 0.25 ? 'Hoog' : 'Niet ingesteld', statusType: '', webUrl: '', channel: kanaal, doorgezetBrandmeester: false };
+      }).filter(t => t.tijd <= _demoTime(nowMin));
+      zohoChannelCounts = {}; zohoTicketsToday.forEach(t => { zohoChannelCounts[t.channel] = (zohoChannelCounts[t.channel] || 0) + 1; });
+      zohoTicketsTodayTotal = zohoTicketsToday.length;
+      zohoTicketStats = { nieuweVandaag: zohoTicketsToday.length, geslotenVandaag: dicht, totaalOpen: open, inDeWacht: wacht, capBereikt: false };
+      zohoTicketHistory[k].nieuweVandaag = zohoTicketsToday.length;
+      const ro = _demoRng('open:' + k);
+      zohoOpenTickets = Array.from({ length: open }, (_, j) => {
+        const dd = new Date(nu); dd.setDate(nu.getDate() - Math.floor((open - j) / 3) - 1);
+        return { ticketNumber: String(3990 + j), titel: _demoPick(ro, DEMO_TICKET_ONDERWERPEN), klant: _demoPick(ro, DEMO_KLANTEN), status: j < wacht ? 'In de wacht' : 'Open', aangemaakt: dateKey(dd), webUrl: '' };
+      });
+      const z = zoomHistory[k];
+      zoomMissedCalls = z.nietTerugGebeldNummers; zoomTotaalInbound = z.totaalInbound; zoomMissedTotal = z.totaalGemist; zoomCalledBackTotal = z.terugGebeld; zoomDataAvailable = true;
+    }
+  }
+}
+
+async function bootDemo() {
+  applyDemoData();
+  const overlay = document.getElementById('auth-overlay'); if (overlay) overlay.classList.add('hidden');
+  isManagement = true; canSeeMissedCalls = true; isExternalUser = false; currentUserEmail = DEMO_TEAM[0].email;
+  const group = document.getElementById('view-toggle-group'); if (group) group.style.display = 'inline-flex';
+  const av = document.querySelector('.avatar-stack');
+  if (av) av.innerHTML = DEMO_TEAM.slice(0, 3).map((t, i) => '<div class="av" title="' + t.naam + '"' + (i ? ' style="background:' + ['', '#8a7356', '#6b8f71'][i] + '"' : '') + '>' + t.naam.split(' ').map(w => w[0]).join('') + '</div>').join('');
+  const live = document.querySelector('.live-indicator'); if (live) live.innerHTML = '<div class="live-dot"></div><span>Demo &middot; voorbeeldgegevens</span>';
+  const banner = document.createElement('div');
+  banner.setAttribute('style', 'background:#AE986F;color:#0D1F2E;text-align:center;font-size:13px;font-weight:600;padding:8px 16px;line-height:1.4');
+  banner.textContent = 'DEMO: alle gegevens op deze pagina zijn verzonnen voorbeeldgegevens, bedoeld om te laten zien hoe het dagrapport eruitziet.';
+  document.body.insertBefore(banner, document.body.firstChild);
+  setView('management', true);
+  await initDashboard();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   showBootLoading();
   try {
     setTime();
     setInterval(setTime, 60000);
+    if (CLIENT.demo) { await bootDemo(); return; }
     const authed = await withTimeout(checkAuth(), 8000, 'TIMEOUT');
     if (authed === 'TIMEOUT') {
       console.error('[Init] checkAuth timeout na 8s -- inlogservice reageert niet');
@@ -3315,16 +3517,16 @@ function buildWeekContext() {
     <div class="wc-item">
       <div class="wc-label">Gesprekken deze week</div>
       <div class="wc-value">${weekGesprekken}</div>
-      <div class="wc-sub">norm: ~${gespNormTotNu} t/m vandaag</div>
+      ${WEEK_NORM_GESPREKKEN > 0 ? `<div class="wc-sub">norm: ~${gespNormTotNu} t/m vandaag</div>
       ${badge(weekGesprekken, gespNormTotNu)}
-      ${progress(weekGesprekken, WEEK_NORM_GESPREKKEN)}
+      ${progress(weekGesprekken, WEEK_NORM_GESPREKKEN)}` : '<div class="wc-sub">totaal deze week</div>'}
     </div>
     <div class="wc-item">
       <div class="wc-label">Naar ${DV}</div>
       <div class="wc-value">${weekBrandmeester}</div>
-      <div class="wc-sub">norm: ~${bmNormTotNu} t/m vandaag</div>
+      ${WEEK_NORM_BRANDMEESTER > 0 ? `<div class="wc-sub">norm: ~${bmNormTotNu} t/m vandaag</div>
       ${badge(weekBrandmeester, bmNormTotNu)}
-      ${progress(weekBrandmeester, WEEK_NORM_BRANDMEESTER)}
+      ${progress(weekBrandmeester, WEEK_NORM_BRANDMEESTER)}` : '<div class="wc-sub">totaal deze week</div>'}
     </div>
     <div class="wc-item">
       <div class="wc-label">Eerstelijns opgelost</div>

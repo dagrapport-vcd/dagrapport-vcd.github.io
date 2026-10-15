@@ -17,6 +17,10 @@ Gebruik
   python3 tools/new_client.py koppel [MAP] --zoom-did +31... --zoom-ext 8xx --granola-map "Naam" [...]
       Vult gegevens in zodra je ze hebt (alles optioneel, in willekeurige combinatie): past de config aan,
       zet die in index.html en ververst CHECKLIST.md. Duurt een paar seconden. --help toont alle opties.
+  python3 tools/new_client.py demo [MAP] [--uit]
+      Demo-modus: de site toont verzonnen voorbeeldgegevens zonder inloggen (om aan nieuwe klanten te laten
+      zien hoe het eruitziet) en de automatische planning staat uit. --uit zet alles terug.
+      `koppel` met echte gegevens (Zoom, Granola, Supabase, team) zet de demo vanzelf uit.
 """
 import argparse
 import html as htmllib
@@ -49,7 +53,7 @@ CODE_FILES = [
 PUBLIC_KEYS = [
     'id', 'naam', 'pagesUrl', 'repo', 'supabase', 'gemisteOproepenDomeinen', 'medewerkerDomeinen',
     'managementEmails', 'team', 'aliassen', 'doorverwijzing', 'topMedewerkerLabel', 'weekNormen',
-    'doorverwijzingHistorie', 'verkeerdVerbondenBackfill',
+    'doorverwijzingHistorie', 'verkeerdVerbondenBackfill', 'demo',
 ]
 
 EMPTY_DAY = {
@@ -157,6 +161,14 @@ def keep_weekdata(new_html, old_html):
     return new_html[:s] + old_html[os_:oe] + new_html[e:]
 
 
+def demo_workflow(text, demo):
+    """Demo aan: de planning vervangen door een datum die niet bestaat (31 feb), zodat de workflow in een
+    demo-repo nooit zelf draait en dus ook geen 'run failed'-mails stuurt. Demo uit: het origineel terugzetten."""
+    if demo:
+        return re.sub(r"- cron: '(?!0 0 31 2 \*)([^']+)'[ \t]*(?=\n)", r"- cron: '0 0 31 2 *'  # DEMO-UIT: origineel '\1'", text)
+    return re.sub(r"- cron: '0 0 31 2 \*'  # DEMO-UIT: origineel '([^']+)'", r"- cron: '\1'", text)
+
+
 def workflow_text(text, cfg):
     """Zet de klantnamen in de workflows om. De bronwaarden worden uit de workflow zelf gelezen,
     zodat dit werkt vanuit elk template (en ook voor een eerder omgezette klantmap)."""
@@ -169,6 +181,7 @@ def workflow_text(text, cfg):
     m = re.search(r'auto: (\S+) dagrapport', text)
     if m:
         text = text.replace('auto: %s dagrapport' % m.group(1), 'auto: %s dagrapport' % cfg['id'])
+    text = demo_workflow(text, bool(cfg.get('demo')))
     text = re.sub(r"(  van:\n(?:.*\n){1,3}?\s+default: )'[^']*'", lambda mm: mm.group(1) + "'%s'" % date.today().isoformat(), text)
     return text
 
@@ -386,6 +399,10 @@ def cmd_koppel(a):
         cfg.setdefault('prompt', {})['bedrijfsregels'] = read(a.bedrijfsregels_bestand).strip()
         gedaan.append('bedrijfsregels')
 
+    if cfg.get('demo') and any(x is not None for x in (a.zoom_did, a.granola_map, a.supabase_url, a.supabase_key, a.team)):
+        zet_demo(out, cfg, False)
+        gedaan.append('demo-modus uitgezet (er zijn echte gegevens)')
+
     if not gedaan:
         print('Niets opgegeven om in te vullen. Gebruik --help voor de opties.')
     else:
@@ -403,6 +420,38 @@ def cmd_koppel(a):
         print('Nog open in client.config.json:\n  - ' + '\n  - '.join(todo))
     else:
         print('Alle verplichte velden zijn ingevuld. Resterend: secrets in GitHub en de cron-job.org-job (zie CHECKLIST.md).')
+
+
+def zet_demo(out, cfg, aan):
+    """Zet demo aan of uit in de config en in de workflows (de config wordt hier niet opgeslagen; dat doet de aanroeper)."""
+    if aan:
+        cfg['demo'] = True
+    else:
+        cfg.pop('demo', None)
+    wf = os.path.join(out, '.github/workflows/update-dagrapport.yml')
+    if os.path.exists(wf):
+        write(wf, demo_workflow(read(wf), aan))
+
+
+def cmd_demo(a):
+    out = os.path.abspath(a.map)
+    path = os.path.join(out, 'client.config.json')
+    cfg = load_cfg(path)
+    zet_demo(out, cfg, not a.uit)
+    write(path, json.dumps(cfg, ensure_ascii=False, indent=2) + '\n')
+    sync_index(out, cfg)
+    if a.uit:
+        print('Demo-modus staat uit: de site toont weer de echte gegevens en vraagt om in te loggen.')
+        todo = todo_fields(cfg)
+        if todo:
+            print('Let op, hier moet nog iets voor worden ingevuld voordat het echt werkt:\n  - ' + '\n  - '.join(todo))
+    else:
+        print('Demo-modus staat aan: de site toont verzonnen voorbeeldgegevens, zonder inloggen. De automatische planning is uitgezet.')
+    if a.commit:
+        subprocess.run(['git', 'add', '-A'], cwd=out, check=True)
+        subprocess.run(['git', '-c', 'user.name=Dagrapport Generator', '-c', 'user.email=bot@htjz.nl', 'commit', '-q', '-m',
+                        'Demo-modus ' + ('uit' if a.uit else 'aan')], cwd=out, check=True)
+        print('Gecommit.')
 
 
 def cmd_check(a):
@@ -437,6 +486,9 @@ def main():
     q.add_argument('--bedrijfsregels-bestand', help='tekstbestand met de regels van de klant voor de AI-analyse')
     q.add_argument('--commit', action='store_true', help='daarna meteen committen')
     q.set_defaults(fn=cmd_koppel)
+    d = sub.add_parser('demo', help='demo-modus aan of uit: verzonnen voorbeeldgegevens, zonder inloggen')
+    d.add_argument('map', nargs='?', default='.'); d.add_argument('--uit', action='store_true'); d.add_argument('--commit', action='store_true')
+    d.set_defaults(fn=cmd_demo)
     k = sub.add_parser('check'); k.add_argument('map', nargs='?', default='.'); k.set_defaults(fn=cmd_check)
     a = ap.parse_args()
     a.fn(a)
