@@ -1700,9 +1700,9 @@ function druktePiek(conversations) {
 
 // Normaliseert bijnamen/verhoorde varianten en rol-suffixen naar dezelfde
 // canonieke naam -- zonder dit stond dezelfde persoon soms als 3 losse
-// "juristen" in de teamstatistieken (bevinding 8 sep 2026): "Senna"/"Senne"
-// vs "Senne Duifhuis" vs "Senne Duifhuis | Juridisch medewerker", en
-// "Davy" (Granola-transcriptiefout) vs "Dewi Verver".
+// "juristen" in de teamstatistieken: een bijnaam of verhoorde naam (Granola-transcriptiefout)
+// naast de volledige naam, of dezelfde naam met rol-suffix ("Naam | Juridisch medewerker").
+// De aliassen staan per klant in client.config.json.
 const JURIST_NAME_ALIASES = CLIENT.aliassen;
 
 function juristFromPersoon(personen) {
