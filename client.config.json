@@ -1,0 +1,63 @@
+{
+  "_leesmij": "Klantconfiguratie. Dit bestand is de ENIGE plek met klantspecifieke waarden; het dashboard (index.html, blok CLIENT) en de scripts in scripts/ lezen het. Na een wijziging: python3 tools/new_client.py --sync-config. Zie KLANT-AANMAKEN.md.",
+  "id": "vcd",
+  "naam": "Van Campen & Dijkstra",
+  "titel": "Van Campen & Dijkstra · Dagrapport — HTJZ",
+  "artifactNaam": "Van Campen & Dijkstra Dagrapport",
+  "botNaam": "VCD Bot",
+  "footerOperator": "HTJZ &middot; Het Team Juridische Zaken",
+  "klantLogo": {
+    "src": "assets/klant-logo.svg",
+    "alt": "Van Campen & Dijkstra",
+    "hoogte": 28,
+    "loginHoogte": 34
+  },
+  "pagesUrl": "",
+  "repo": {
+    "owner": "",
+    "naam": ""
+  },
+  "supabase": {
+    "url": "",
+    "anonKey": ""
+  },
+  "gemisteOproepenDomeinen": [
+    "htjz.nl"
+  ],
+  "medewerkerDomeinen": [
+    "htjz.nl",
+    "juridische-check.nl"
+  ],
+  "managementEmails": [
+    "jackiestam@htjz.nl",
+    "edgarstam@htjz.nl"
+  ],
+  "team": [],
+  "aliassen": {},
+  "doorverwijzing": {
+    "naam": "rechtsbijstand",
+    "toelichting": "",
+    "zohoLabel": "",
+    "mailDomein": ""
+  },
+  "topMedewerkerLabel": "Meeste gesprekken",
+  "weekNormen": {
+    "doorverwijzing": 0,
+    "gesprekken": 0
+  },
+  "doorverwijzingHistorie": {},
+  "verkeerdVerbondenBackfill": {},
+  "granolaMap": "",
+  "zoom": {
+    "queueDid": "",
+    "queueExt": ""
+  },
+  "zoho": {
+    "regio": "eu"
+  },
+  "prompt": {
+    "bedrijfsregels": "",
+    "dagNorm": "",
+    "dagCorrectie": ""
+  }
+}

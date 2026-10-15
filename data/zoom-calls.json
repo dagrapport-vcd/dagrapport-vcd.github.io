@@ -1,0 +1,10 @@
+{
+  "date": "",
+  "totaalInbound": 0,
+  "totaalGemist": 0,
+  "terugGebeld": 0,
+  "nietTerugGebeld": 0,
+  "nietTerugGebeldNummers": [],
+  "alleGemistNummers": [],
+  "agenten": {}
+}

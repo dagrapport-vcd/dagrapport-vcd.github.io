@@ -1,0 +1,124 @@
+name: Update Van Campen & Dijkstra Dagrapport
+
+on:
+  schedule:
+    # Elke 10 minuten op werkdagen tussen 07:00 en 18:00 Amsterdam (05:00-16:00 UTC).
+    # Bewust NIET op ronde minuten (:00/:10/:20...) -- GitHub's schedule-trigger
+    # raakt structureel vertraagd/overgeslagen rond ronde tijdstippen omdat wereldwijd
+    # de meeste workflows daar tegelijk vuren (congestie). Offset naar :03/:13/... etc.
+    # is GitHub's eigen aanbevolen mitigatie. Geconstateerd 8 sep 2026: met het oude
+    # "elk half uur" schema (0,30) draaide dit in de praktijk maandenlang effectief
+    # maar ~1x per 4 uur i.p.v. elke 30 min -- dit is geen garantie, alleen een
+    # verbetering.
+    - cron: '3,13,23,33,43,53 5-16 * * 1-5'
+  workflow_dispatch:   # Handmatig triggeren vanuit GitHub
+    inputs:
+      datum:
+        description: 'Zoom: datum (YYYY-MM-DD) om op te halen, leeg = vandaag'
+        required: false
+        default: ''
+      diagnose_nummer:
+        description: 'Zoom: DIAGNOSE-ONLY -- volledig record dumpen voor dit nummer, niets opslaan (leeg = normale run)'
+        required: false
+        default: ''
+      granola_datum:
+        description: 'Granola: datum (YYYY-MM-DD) om te herclassificeren -- schrijft naar data/granola-backfill-<datum>.json, NIET naar data/today.json (leeg = vandaag, normale run)'
+        required: false
+        default: ''
+
+# Runs mogen elkaar niet inhalen: GitHub's eigen schedule en cron-job.org starten
+# vaak tegelijk, en beide pushen dezelfde data/*.json -- de verliezer faalde dan op
+# de push en gaf een "run failed"-mail (11 van 12 mislukte runs tussen 9 en 30 sep
+# 2026 hadden een tweede run binnen enkele seconden). Met een queue draait de
+# tweede run pas als de eerste klaar is en checkt dan de nieuwste main uit.
+concurrency:
+  group: update-dagrapport
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Nodig om te kunnen committen en pushen
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Node.js (voor weekData-validatie)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Haal Zoho Desk-tickets op
+        env:
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_ORG_ID: ${{ secrets.ZOHO_ORG_ID }}
+        run: python scripts/fetch_zoho_tickets.py
+        continue-on-error: true  # Zoho-storing mag de Granola-update niet blokkeren
+        # Draait bewust VOOR de Granola-AI-analyse: die gebruikt de Zoho-tickets
+        # om te zien of een beller automatisch is herkend op telefoonnummer.
+      - name: Haal Zoom Phone gemiste oproepen op
+        env:
+          ZOOM_ACCOUNT_ID: ${{ secrets.ZOOM_ACCOUNT_ID }}
+          ZOOM_CLIENT_ID: ${{ secrets.ZOOM_CLIENT_ID }}
+          ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
+          ZOOM_DATE: ${{ github.event.inputs.datum }}
+          ZOOM_DIAGNOSE_ONLY: ${{ github.event.inputs.diagnose_nummer != '' }}
+          ZOOM_DIAGNOSE_NUMBER: ${{ github.event.inputs.diagnose_nummer }}
+        run: python scripts/fetch_zoom_calls.py
+        continue-on-error: true  # Zoom-storing mag de rest van het dagrapport niet blokkeren
+      - name: Analyseer Granola-gesprekken met AI
+        env:
+          GRANOLA_API_KEY: ${{ secrets.GRANOLA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GRANOLA_DATE: ${{ github.event.inputs.granola_datum }}
+        run: python scripts/analyze_granola_ai.py
+      - name: Bak Granola-analyse permanent in in weekData (index.html)
+        # Zonder deze stap bestond de enige permanente vastlegging van
+        # data/today.json uit een lokale Cowork-taak (17:30, alleen als de
+        # laptop aan staat) -- data/today.json zelf wordt de volgende dag
+        # overschreven. Deze stap draait elke cron-run mee, dus de hele
+        # dagrapport-historie blijft voortaan bijgewerkt ongeacht of er
+        # ook maar één laptop aan staat.
+        run: python scripts/finalize_weekdata.py
+      - name: Commit en push data/*.json + index.html
+        run: |
+          git config user.name  "VCD Bot"
+          git config user.email "bot@htjz.nl"
+          git add data/today.json data/zoho-tickets.json index.html
+          if [ -f data/zoho-ticket-history.json ]; then git add data/zoho-ticket-history.json; fi
+          # data/zoom-calls.json bestaat pas na de eerste geslaagde Zoom-fetch
+          # (script slaat niets op bij ontbrekende secrets) -- guard voorkomt
+          # dat "git add" op een niet-bestaand bestand de hele stap laat falen
+          # onder bash's set -e (GitHub Actions default).
+          if [ -f data/zoom-calls.json ]; then git add data/zoom-calls.json; fi
+          if [ -f data/zoom-history.json ]; then git add data/zoom-history.json; fi
+          # Backfill-outputbestanden van de Granola-herclassificatie (zie
+          # GRANOLA_DATE) -- glob levert niets op als er geen backfill is
+          # gedraaid; 2>/dev/null || true voorkomt dat 'git add' dan faalt.
+          git add data/granola-backfill-*.json 2>/dev/null || true
+          # Alleen committen als er iets veranderd is. Bij een race met een andere
+          # push (bv. een handmatige of lokale update) wordt opnieuw bovenop de
+          # nieuwste main gezet. Conflicten worden NIET stilletjes opgelost (dat zou
+          # de wijziging van de ander weggooien). Lukt het na een paar pogingen toch
+          # niet, dan is dat geen fout: de volgende run (10 min later) begint
+          # gewoon vanaf de nieuwste main en pusht dan wel -- een waarschuwing
+          # volstaat, anders volgt er onnodig een "run failed"-mail.
+          if git diff --staged --quiet; then echo "Geen wijzigingen"; exit 0; fi
+          git commit -m "auto: vcd dagrapport $(date -u '+%Y-%m-%d %H:%M UTC')"
+          for i in 1 2 3; do
+            git fetch -q origin main
+            if git rebase -q origin/main && git push -q; then
+              echo "Gepusht (poging $i)"; exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            echo "Push-poging $i mislukt, opnieuw..."; sleep $((i * 5))
+          done
+          echo "::warning::Push na 3 pogingen niet gelukt (waarschijnlijk een conflict met een gelijktijdige handmatige wijziging); de volgende run herstelt dit vanzelf."
+          exit 0

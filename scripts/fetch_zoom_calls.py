@@ -1,0 +1,453 @@
+#!/usr/bin/env python3
+"""Haalt de inbound-oproepen van vandaag op uit Zoom Phone call history:
+totaal aantal binnenkomende oproepen, hoeveel daarvan gemist zijn, hoeveel
+er zijn teruggebeld en (met naam/nummer/tijd) wie nog niet is teruggebeld.
+Schrijft data/zoom-calls.json voor het dagrapport-dashboard (zelfde patroon
+als scripts/fetch_zoho_tickets.py).
+
+LET OP -- bekende beperking (bron: Zoom-documentatie "Understand Zoom Phone
+call history"): een top-level call_history-record toont bij doorgeroute
+gesprekken (auto receptionist / wachtrij) soms alleen het resultaat van het
+EERSTE segment (bv. "answered" door de auto receptionist), niet het
+resultaat bij de uiteindelijke medewerker. Voor 100% zekerheid zou per call
+ook de "Get call path"-API bevraagd moeten worden (scope
+phone:read:call_log:admin) -- dat gebeurt in deze versie nog niet.
+
+BEVINDING 24 aug 2026: Zoom's call_result kent geen vaste, volledig
+gedocumenteerde lijst met waarden (o.a. "abandoned" -- een call die ophangt
+terwijl die in de wachtrij staat -- ontbreekt zelfs in Zoom's eigen
+supportartikel). Een allowlist van "gemiste" resultaten bleek daardoor
+onbetrouwbaar: een echte gemiste oproep (Zoom-app toonde 'm als "Missed")
+kwam binnen met call_result="abandoned", wat niet in de allowlist stond en
+dus stilzwijgend NIET als gemist werd geteld. Dit script gebruikt daarom nu
+het omgekeerde: een denylist van resultaten die aantoonbaar een mens aan de
+lijn kregen (HANDLED_RESULTS). Alles daarbuiten telt als "gemist / actie
+nodig" -- bewust ruim, zodat een nieuwe/onbekende call_result-waarde nooit
+stilzwijgend wordt genegeerd. Controleer bij twijfel de Zoom-telefonielog
+zelf.
+
+BEVINDING 25 aug 2026 (casus 06 28047869, 10:41, 24 aug): het TOP-LEVEL
+call_result kan "answered" tonen terwijl de Lancyr-wachtrij zelf de oproep
+nooit heeft laten opnemen -- de Zoom-app toonde deze call terecht als
+"Missed for Lancyr Juridische Helpdesk". Oorzaak: het EERSTE segment van
+het call path (event "incoming") had "result": "overflowed" -- de oproep
+liep over naar een andere bestemming die 'm elders wel oppakte, waardoor
+het top-level call_result "answered" werd. Dat weerspiegelt het
+EINDRESULTAAT van de hele oproep, niet het resultaat van de Lancyr-wachtrij
+specifiek. Vereist scope phone:read:call_log:admin (25 aug 2026
+toegevoegd). Dit script haalt daarom nu voor elke inbound oproep die
+top-level nog NIET als gemist geldt, alsnog het call path op en
+controleert het resultaat van het eerste ("incoming") segment -- dat is,
+omdat 'logs' al gefilterd is op callee_did_number == QUEUE_DID,
+gegarandeerd het moment dat de oproep DEZE wachtrij binnenkwam (geen
+verwarring met de andere wachtrij "HTJZ - Juridische Helpdesk" mogelijk).
+Zie de classificatielogica in main() voor de implementatie.
+
+Vereist: ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET (Server-to-
+Server OAuth-app, scopes phone:read:list_call_logs:admin EN
+phone:read:call_log:admin). Optioneel: ZOOM_DATE (YYYY-MM-DD) om een
+andere dag dan vandaag op te halen.
+"""
+import os
+import sys
+import json
+import base64
+import urllib.request
+import urllib.parse
+import urllib.error
+from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from client_config import CFG, staff_by_local  # noqa: E402
+
+ACCOUNT_ID = os.environ.get('ZOOM_ACCOUNT_ID', '')
+CLIENT_ID = os.environ.get('ZOOM_CLIENT_ID', '')
+CLIENT_SECRET = os.environ.get('ZOOM_CLIENT_SECRET', '')
+
+# Diagnose-only modus: print volledige ruwe record(s) voor een specifiek
+# nummer en STOP dan zonder data/zoom-calls.json te schrijven. Bedoeld om
+# handmatig (via workflow_dispatch + ZOOM_DATE) een specifieke, betwiste
+# oproep te inspecteren zonder de productiedata van 'vandaag' te overschrijven.
+DIAGNOSE_ONLY = os.environ.get('ZOOM_DIAGNOSE_ONLY', '').lower() in ('1', 'true', 'yes')
+DIAGNOSE_NUMBER = os.environ.get('ZOOM_DIAGNOSE_NUMBER', '').strip()
+
+# Backfill-modus: alleen data/zoom-history.json bijwerken, data/zoom-calls.json
+# (de "vandaag"-data) NIET overschrijven -- zie .github/workflows/zoom-backfill.yml.
+HISTORY_ONLY = os.environ.get('ZOOM_HISTORY_ONLY', '').lower() in ('1', 'true', 'yes')
+
+TOKEN_URL = 'https://zoom.us/oauth/token'
+API_BASE = 'https://api.zoom.us/v2'
+OUTPUT_PATH = 'data/zoom-calls.json'
+HISTORY_PATH = 'data/zoom-history.json'
+AMS_OFFSET = timedelta(hours=2)
+
+# Resultaatwaarden die aantonen dat een MENS de oproep heeft beantwoord.
+# Alleen deze tellen als "geen actie nodig"; alles wat hier niet in staat
+# (voicemail, abandoned, missed, no_answer, busy, rejected, blocked,
+# wrong_number, call_failed, en elke toekomstige/onbekende waarde) telt als
+# "gemist" en komt in de terugbel-lijst terecht. Zie docstring hierboven
+# voor waarom dit bewust een denylist is i.p.v. een allowlist.
+HANDLED_RESULTS = {'answered', 'connected'}
+
+# BEVINDING 25 aug 2026: dit Zoom-account heeft meerdere wachtrijen op
+# dezelfde helpdesk-afdeling (o.a. "Lancyr Juridische Helpdesk", ext 807,
+# +31294799077 EN "HTJZ - Juridische Helpdesk", ext 811, +318002300743).
+# Zonder filter haalt get_call_history() ALLE wachtrijen van het account
+# op, waardoor een oproep die nooit de Lancyr-lijn heeft bereikt (bewezen
+# geval: +31433514571, voicemail op ext 811 op 24 aug) toch als "gemiste
+# Lancyr-oproep" werd gerapporteerd. Daarom nu expliciet filteren op de
+# Lancyr-lijn, voor zowel inbound (callee) als outbound (caller = onze
+# queue-DID bij een agent die terugbelt).
+QUEUE_DID = CFG['zoom']['queueDid']
+QUEUE_EXT = CFG['zoom']['queueExt']
+
+# Medewerkers, op basis van het lokale deel van het e-mailadres (Zoom gebruikt
+# soms @juridische-check.nl, soms @htjz.nl) -> naam zoals in het dashboard.
+STAFF_BY_LOCAL = staff_by_local()
+
+
+def staff_name(name, email):
+    local = ''.join(ch for ch in (email or '').split('@')[0].lower() if ch.isalpha())
+    if local in STAFF_BY_LOCAL:
+        return STAFF_BY_LOCAL[local]
+    n = (name or '').split('|')[0].strip()
+    return n or None
+
+
+def get_access_token():
+    creds = f'{CLIENT_ID}:{CLIENT_SECRET}'.encode()
+    basic = base64.b64encode(creds).decode()
+    data = urllib.parse.urlencode({
+        'grant_type': 'account_credentials',
+        'account_id': ACCOUNT_ID,
+    }).encode()
+    req = urllib.request.Request(TOKEN_URL, data=data, method='POST', headers={
+        'Authorization': f'Basic {basic}',
+        'Content-Type': 'application/x-www-form-urlencoded',
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())['access_token']
+
+
+def get_call_history(access_token, date_str):
+    all_logs = []
+    next_token = ''
+    while True:
+        params = {
+            'from': date_str,
+            'to': date_str,
+            'page_size': 300,
+            'type': 'all',
+        }
+        if next_token:
+            params['next_page_token'] = next_token
+        url = f"{API_BASE}/phone/call_history?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers={
+            'Authorization': f'Bearer {access_token}',
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            page = json.loads(resp.read())
+        logs = page.get('call_logs', [])
+        all_logs.extend(logs)
+        next_token = page.get('next_page_token', '')
+        if not next_token:
+            break
+    return all_logs
+
+
+def get_call_path(access_token, call_id):
+    """Get call path (phone:read:call_log:admin) -- geeft het volledige
+    routeringspad van een call terug (auto receptionist / wachtrij /
+    medewerker per segment), zodat we kunnen zien of een top-level
+    call_result als 'voicemail'/'abandoned' misleidend is (bv. omdat een
+    medewerker het gesprek elders in het pad wel degelijk heeft gehad)."""
+    url = f"{API_BASE}/phone/call_history/{urllib.parse.quote(call_id, safe='')}"
+    req = urllib.request.Request(url, headers={
+        'Authorization': f'Bearer {access_token}',
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+def main():
+    missing = [n for n, v in [
+        ('ZOOM_ACCOUNT_ID', ACCOUNT_ID), ('ZOOM_CLIENT_ID', CLIENT_ID),
+        ('ZOOM_CLIENT_SECRET', CLIENT_SECRET),
+    ] if not v]
+    if missing:
+        print(f"ERROR: missing env vars: {', '.join(missing)}")
+        raise SystemExit(1)
+
+    today_str = (datetime.now(timezone.utc) + AMS_OFFSET).date().isoformat()
+    # FIX 25 aug 2026: ZOOM_DATE staat via workflow_dispatch ALTIJD in de
+    # omgeving (ook als lege string ''), dus os.environ.get(..., today_str)
+    # viel niet terug op vandaag. 'or' behandelt zowel ontbrekend als leeg
+    # als 'gebruik vandaag'.
+    date_str = os.environ.get('ZOOM_DATE') or today_str
+
+    print(f"Ophalen call history voor {date_str}...")
+    access_token = get_access_token()
+    logs = get_call_history(access_token, date_str)
+    print(f"Totaal opgehaald: {len(logs)} call log records")
+    if logs:
+        print("Voorbeeldrecord:", json.dumps(logs[0], indent=2, ensure_ascii=False))
+
+    if DIAGNOSE_ONLY:
+        print(f"--- DIAGNOSE-ONLY MODUS: zoeken op {DIAGNOSE_NUMBER!r} "
+              f"(caller_did_number of callee_did_number) ---")
+        matches = [
+            log for log in logs
+            if DIAGNOSE_NUMBER and (
+                DIAGNOSE_NUMBER in (log.get("caller_did_number") or "")
+                or DIAGNOSE_NUMBER in (log.get("callee_did_number") or "")
+            )
+        ]
+        print(f"Gevonden: {len(matches)} record(en)")
+        for m in matches:
+            print(json.dumps(m, indent=2, ensure_ascii=False))
+            call_id = m.get('id')
+            print(f"--- CALL PATH voor {call_id!r} ---")
+            try:
+                path = get_call_path(access_token, call_id)
+                print(json.dumps(path, indent=2, ensure_ascii=False))
+            except urllib.error.HTTPError as e:
+                body = e.read().decode(errors='replace')
+                print(f"  (kon call path niet ophalen: HTTP {e.code} -- {body})")
+            except Exception as e:
+                print(f"  (kon call path niet ophalen: {e})")
+        print("--- EINDE DIAGNOSE-ONLY (data/zoom-calls.json NIET geschreven) ---")
+        return
+
+    # Filter op de Lancyr Juridische Helpdesk-lijn (zie BEVINDING 25 aug 2026
+    # hierboven). Alles hierna (result_counts, queue_counts, missed/outbound)
+    # werkt bewust op de GEFILTERDE lijst.
+    ongefilterd_totaal = len(logs)
+    logs = [
+        log for log in logs
+        if (
+            (log.get("direction") or "").lower() == "inbound"
+            and log.get("callee_did_number") == QUEUE_DID
+        ) or (
+            (log.get("direction") or "").lower() == "outbound"
+            and log.get("caller_did_number") == QUEUE_DID
+        )
+    ]
+    print(f"Gefilterd op Lancyr Juridische Helpdesk-lijn ({QUEUE_DID}): "
+          f"{len(logs)} van {ongefilterd_totaal} opgehaalde records blijven over.")
+
+    # Lichte, blijvende diagnose: welke call_result-waarden komen vandaag
+    # voor bij inbound gesprekken? Handig om in de Actions-log te zien of er
+    # een nieuwe/onbekende waarde opduikt, zonder elke run alle records
+    # individueel te loggen.
+    result_counts = {}
+    for log in logs:
+        if (log.get('direction') or '').lower() == 'inbound':
+            r = log.get('call_result') or '(leeg)'
+            result_counts[r] = result_counts.get(r, 0) + 1
+    print(f"Inbound call_result-waarden vandaag: {result_counts}")
+
+    # TIJDELIJKE DIAGNOSE: op welke lijn/wachtrij (callee) komen de
+    # binnenkomende oproepen vandaag binnen? Een gebruiker meldde een
+    # "gemiste oproep" te zien voor een nummer dat volgens hen nooit heeft
+    # gebeld -- mogelijke oorzaak: dit account heeft meerdere wachtrijen
+    # (bv. een algemene HTJZ-lijn naast de specifieke Lancyr-helpdesklijn)
+    # en dit script haalt nu ALLE wachtrijen van het account op, niet
+    # gefilterd op de Lancyr-helpdesk.
+    queue_counts = {}
+    for log in logs:
+        if (log.get('direction') or '').lower() == 'inbound':
+            key = (log.get('callee_name'), log.get('callee_ext_number'), log.get('callee_did_number'))
+            queue_counts[key] = queue_counts.get(key, 0) + 1
+    print("Inbound-oproepen per (callee_name, callee_ext_number, callee_did_number):")
+    for key, count in queue_counts.items():
+        print(f"  {key}: {count}")
+
+    # BEVINDING 25 aug 2026: top-level call_result "answered" is niet
+    # genoeg bewijs dat de Lancyr-wachtrij zelf de oproep heeft laten
+    # opnemen (zie docstring bovenaan -- casus 06 28047869, 24 aug). Voor
+    # elke inbound oproep die hier nog niet als gemist geldt, wordt daarom
+    # het call path opgehaald en het resultaat van het EERSTE ("incoming")
+    # segment gecontroleerd. Omdat 'logs' hierboven al gefilterd is op
+    # callee_did_number == QUEUE_DID, is dat eerste segment
+    # gegarandeerd het moment waarop de oproep DEZE wachtrij binnenkwam --
+    # geen risico op verwarring met de andere wachtrij op dezelfde
+    # afdelingsnaam ("HTJZ - Juridische Helpdesk"). Volumecheck 25 aug
+    # 2026: deze wachtrij ontvangt doorgaans enkele tientallen inbound
+    # oproepen per dag, dus 1 extra API-call per oproep per (halfuurlijkse)
+    # run blijft ruim binnen Zoom's rate limits. Mocht het volume flink
+    # groeien, overweeg dan caching per call_id i.p.v. elke run alles
+    # opnieuw te bevragen. Faalt een call-path-fetch (bv. tijdelijke
+    # Zoom-storing), dan blijft de top-level classificatie leidend -- een
+    # gewaarschuwde WAARSCHUWING in de log, geen harde crash.
+    missed = []
+    outbound_calls = []
+    # BEVINDING 3 okt 2026: Granola kent alleen de opgenomen gesprekken (en
+    # schrijft ze bovendien toe aan de notitie-eigenaar), dus per-medewerker-
+    # aantallen daaruit zijn onbetrouwbaar. Zoom weet wel wie de oproep
+    # daadwerkelijk aannam (call path) en wie uitgaand belde.
+    agenten = {}
+    beantwoord_zonder_agent = 0
+    debug_paden = 0
+    totaal_inbound = 0
+    queue_overflow_count = 0
+    for log in logs:
+        direction = (log.get('direction') or '').lower()
+        result = (log.get('call_result') or '').lower()
+        if direction == 'inbound':
+            totaal_inbound += 1
+            is_missed = result not in HANDLED_RESULTS
+            reden = 'top-level'
+            queue_result = None
+            if not is_missed:
+                call_id = log.get('id')
+                try:
+                    path = get_call_path(access_token, call_id)
+                    elements = path.get('call_path') or path.get('call_elements') or []
+                    incoming = next((el for el in elements if el.get('event') == 'incoming'), None)
+                    if incoming:
+                        queue_result = (incoming.get('result') or '').lower()
+                        if queue_result and queue_result not in HANDLED_RESULTS:
+                            is_missed = True
+                            reden = f"wachtrij-segment result={queue_result!r} (top-level was {result!r})"
+                            queue_overflow_count += 1
+                    if not is_missed:
+                        # Wie nam deze oproep aan? Laatste segment (niet het wachtrij-
+                        # segment zelf) met een afgehandeld resultaat en een gebelde medewerker.
+                        agent_el = None
+                        for el in elements:
+                            if el.get('event') == 'incoming':
+                                continue
+                            if (el.get('result') or '').lower() in HANDLED_RESULTS and (el.get('callee_email') or el.get('callee_name')):
+                                agent_el = el
+                        naam = staff_name(agent_el.get('callee_name'), agent_el.get('callee_email')) if agent_el else None
+                        if debug_paden < 2:
+                            debug_paden += 1
+                            print("  [debug] call path van een beantwoorde oproep:",
+                                  json.dumps([{k: el.get(k) for k in ('event', 'result', 'callee_name', 'callee_ext_type', 'talk_time')} for el in elements], ensure_ascii=False))
+                        if naam:
+                            a = agenten.setdefault(naam, {'beantwoord': 0, 'uitgaand': 0, 'gesprekstijdSec': 0})
+                            a['beantwoord'] += 1
+                            a['gesprekstijdSec'] += int(agent_el.get('talk_time') or log.get('duration') or 0)
+                        else:
+                            beantwoord_zonder_agent += 1
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode(errors='replace')
+                    print(f"  WAARSCHUWING: call path ophalen mislukt voor {call_id!r} "
+                          f"({log.get('caller_did_number')!r}): HTTP {e.code} -- {body}")
+                except Exception as e:
+                    print(f"  WAARSCHUWING: call path ophalen mislukt voor {call_id!r} "
+                          f"({log.get('caller_did_number')!r}): {e}")
+            if is_missed:
+                log = dict(log)
+                log['_classificatie_reden'] = reden
+                if queue_result:
+                    # Toon in het dashboard het WERKELIJKE resultaat van de
+                    # Lancyr-wachtrij (bv. "overflowed"), niet het
+                    # top-level call_result ("answered") dat hier
+                    # misleidend zou zijn voor een oproep die als gemist
+                    # wordt getoond.
+                    log['_top_level_call_result'] = log.get('call_result')
+                    log['call_result'] = queue_result
+                missed.append(log)
+        elif direction == 'outbound':
+            outbound_calls.append(log)
+            naam = staff_name(log.get('caller_name'), log.get('caller_email'))
+            if naam and result in HANDLED_RESULTS:
+                a = agenten.setdefault(naam, {'beantwoord': 0, 'uitgaand': 0, 'gesprekstijdSec': 0})
+                a['uitgaand'] += 1
+                a['gesprekstijdSec'] += int(log.get('duration') or 0)
+
+    if queue_overflow_count:
+        print(f"Wachtrij-overflow gedetecteerd bij {queue_overflow_count} oproep(en): "
+              f"top-level 'beantwoord', maar de Lancyr-wachtrij zelf kreeg de oproep "
+              f"niet afgehandeld (nu alsnog als gemist geteld).")
+
+    def called_back(missed_call):
+        caller_number = missed_call.get('caller_did_number')
+        missed_time = missed_call.get('start_time')
+        if not caller_number or not missed_time:
+            return False
+        for ob in outbound_calls:
+            if ob.get('callee_did_number') == caller_number and ob.get('start_time', '') > missed_time:
+                return True
+        return False
+
+    niet_gebeld = []
+    alle_gemist = []
+    gebeld_count = 0
+    for m in missed:
+        is_teruggebeld = called_back(m)
+        start_raw = m.get('start_time', '') or ''
+        try:
+            dt_utc = datetime.fromisoformat(start_raw.replace('Z', '+00:00'))
+            tijd = (dt_utc + AMS_OFFSET).strftime('%H:%M')
+        except Exception:
+            tijd = start_raw
+        record = {
+            'nummer': m.get('caller_did_number', '') or '',
+            'naam': m.get('caller_name') or 'Onbekend',
+            'tijd': tijd,
+            'callResult': m.get('call_result', '') or '',
+            'teruggebeld': is_teruggebeld,
+        }
+        alle_gemist.append(record)
+        if is_teruggebeld:
+            gebeld_count += 1
+        else:
+            niet_gebeld.append(record)
+
+    niet_gebeld.sort(key=lambda x: x['tijd'])
+    alle_gemist.sort(key=lambda x: x['tijd'])
+
+    # Overzicht van de classificatie -- geen herhaalde call-path-fetch meer
+    # nodig, want die is (voor de overflow-check) al hierboven gedaan.
+    if missed:
+        print(f"--- {len(missed)} gemiste oproep(en) (classificatie) ---")
+        for m in missed:
+            print(f"call_id={m.get('id')!r} caller={m.get('caller_did_number')!r} "
+                  f"reden={m.get('_classificatie_reden')!r}")
+        print("--- EINDE CLASSIFICATIE ---")
+
+    result = {
+        'date': date_str,
+        'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'totaalInbound': totaal_inbound,
+        'totaalGemist': len(missed),
+        'terugGebeld': gebeld_count,
+        'nietTerugGebeld': len(niet_gebeld),
+        'nietTerugGebeldNummers': niet_gebeld,
+        'alleGemistNummers': alle_gemist,
+        'agenten': agenten,
+        'beantwoordZonderAgent': beantwoord_zonder_agent,
+    }
+    os.makedirs('data', exist_ok=True)
+    if not HISTORY_ONLY:
+        with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+    print(f"Saved: {totaal_inbound} binnenkomend, {len(missed)} gemist, "
+          f"{gebeld_count} teruggebeld, {len(niet_gebeld)} niet teruggebeld "
+          f"-> {OUTPUT_PATH}")
+
+    # Geaccumuleerde historie bijwerken (per datum), zodat het dashboard ook
+    # 'Gisteren'/'Deze week'/'Vorige week' kan tonen voor gemiste oproepen.
+    # Bestaande datums blijven staan; alleen de datum van DEZE run wordt
+    # overschreven (idempotent -- veilig om dezelfde dag meerdere keren
+    # per dag te draaien, zoals de geplande run elke 30 minuten doet).
+    try:
+        with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        history = {}
+    history[date_str] = result
+    with open(HISTORY_PATH, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2, sort_keys=True)
+    print(f"Historie bijgewerkt: {len(history)} datum(s) in {HISTORY_PATH}")
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors='replace')
+        print(f"ERROR: Zoom API gaf HTTP {e.code} terug. Response body: {body}")
+        raise SystemExit(1)
