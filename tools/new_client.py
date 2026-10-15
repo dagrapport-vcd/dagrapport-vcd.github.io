@@ -385,7 +385,9 @@ def cmd_koppel(a):
         cfg['repo'] = {'owner': eigenaar, 'naam': naam}
         gedaan.append('GitHub-repo')
         if a.pages_url is None:
-            cfg['pagesUrl'] = f'https://{eigenaar.lower()}.github.io/{naam}/'
+            # Een repo met de naam <x>.github.io is de hoofdsite van de eigenaar en staat op https://<x>.github.io/
+            cfg['pagesUrl'] = (f'https://{naam.lower()}/' if naam.lower().endswith('.github.io')
+                               else f'https://{eigenaar.lower()}.github.io/{naam}/')
             gedaan.append('site-URL (afgeleid uit de repo)')
     zet(None, 'pagesUrl', a.pages_url, 'site-URL')
     if a.team:

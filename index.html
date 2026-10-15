@@ -1445,7 +1445,7 @@ a:focus-visible,
 
 <script>
 // ===== KLANTCONFIG (gegenereerd uit client.config.json; niet met de hand aanpassen -- zie tools/new_client.py --sync-config) =====
-const CLIENT = /*CLIENT_CONFIG_START*/{"id":"vcd","naam":"Van Campen & Dijkstra","pagesUrl":"https://jackie24-3.github.io/dagrapport-vcd/","repo":{"owner":"jackie24-3","naam":"dagrapport-vcd"},"supabase":{"url":"","anonKey":""},"gemisteOproepenDomeinen":["htjz.nl"],"medewerkerDomeinen":["htjz.nl","juridische-check.nl"],"managementEmails":["jackiestam@htjz.nl","edgarstam@htjz.nl"],"team":[],"aliassen":{},"doorverwijzing":{"naam":"rechtsbijstand","toelichting":"","zohoLabel":"","mailDomein":""},"topMedewerkerLabel":"Meeste gesprekken","weekNormen":{"doorverwijzing":0,"gesprekken":0},"doorverwijzingHistorie":{},"verkeerdVerbondenBackfill":{},"demo":true}/*CLIENT_CONFIG_END*/;
+const CLIENT = /*CLIENT_CONFIG_START*/{"id":"vcd","naam":"Van Campen & Dijkstra","pagesUrl":"https://dagrapport-vcd.github.io/","repo":{"owner":"dagrapport-vcd","naam":"dagrapport-vcd.github.io"},"supabase":{"url":"","anonKey":""},"gemisteOproepenDomeinen":["htjz.nl"],"medewerkerDomeinen":["htjz.nl","juridische-check.nl"],"managementEmails":["jackiestam@htjz.nl","edgarstam@htjz.nl"],"team":[],"aliassen":{},"doorverwijzing":{"naam":"rechtsbijstand","toelichting":"","zohoLabel":"","mailDomein":""},"topMedewerkerLabel":"Meeste gesprekken","weekNormen":{"doorverwijzing":0,"gesprekken":0},"doorverwijzingHistorie":{},"verkeerdVerbondenBackfill":{},"demo":true}/*CLIENT_CONFIG_END*/;
 const DV = CLIENT.doorverwijzing.naam;
 const DV_TOELICHTING = CLIENT.doorverwijzing.toelichting || '';
 const STAFF_BY_LOCAL = Object.fromEntries(CLIENT.team.map(t => [t.email.split('@')[0].toLowerCase().replace(/[^a-z]/g, ''), t.naam]));
