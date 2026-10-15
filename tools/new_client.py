@@ -155,11 +155,18 @@ def keep_weekdata(new_html, old_html):
 
 
 def workflow_text(text, cfg):
-    """Zet de paar klantnamen in de workflows om. De template-workflows bevatten de waarden van de bronklant."""
-    text = text.replace('Update Lancyr Dagrapport', 'Update %s Dagrapport' % cfg['naam'])
-    text = text.replace('Lancyr Bot', cfg.get('botNaam', cfg['naam'] + ' Bot'))
-    text = text.replace('auto: lancyr dagrapport', 'auto: %s dagrapport' % cfg['id'])
-    text = text.replace("default: '2026-08-17'", "default: '%s'" % date.today().isoformat())
+    """Zet de klantnamen in de workflows om. De bronwaarden worden uit de workflow zelf gelezen,
+    zodat dit werkt vanuit elk template (en ook voor een eerder omgezette klantmap)."""
+    m = re.search(r'^name: Update (.+?) Dagrapport$', text, re.M)
+    if m:
+        text = text.replace('Update %s Dagrapport' % m.group(1), 'Update %s Dagrapport' % cfg['naam'])
+    m = re.search(r'git config user\.name\s+"([^"]+)"', text)
+    if m:
+        text = text.replace('"%s"' % m.group(1), '"%s"' % cfg.get('botNaam', cfg['naam'] + ' Bot'))
+    m = re.search(r'auto: (\S+) dagrapport', text)
+    if m:
+        text = text.replace('auto: %s dagrapport' % m.group(1), 'auto: %s dagrapport' % cfg['id'])
+    text = re.sub(r"(  van:\n(?:.*\n){1,3}?\s+default: )'[^']*'", lambda mm: mm.group(1) + "'%s'" % date.today().isoformat(), text)
     return text
 
 

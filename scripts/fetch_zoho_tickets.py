@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fetch today's tickets from the Zoho Desk "HTJZ | Lancyr" portal and write
+Fetch today's tickets from the Zoho Desk Zoho Desk-portal van de klant and write
 data/zoho-tickets.json for the dagrapport dashboard.
 
 Requires: ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID
@@ -46,11 +46,11 @@ def get_access_token():
 
 def fetch_ticket_threads(access_token, ticket_id):
     """Haalt de e-mailthreads van een ticket op. Het customFields-vinkje
-    "Doorgezet naar BrandMR" bleek onbetrouwbaar (0 van 30 gecontroleerde
+    "Doorgezet naar doorverwijzing" bleek onbetrouwbaar (0 van 30 gecontroleerde
     tickets stond op waar, ook een geval dat aantoonbaar wel was doorgezet).
-    Het echte signaal is een uitgaande e-mail naar de BrandMR-intake --
+    Het echte signaal is een uitgaande e-mail naar de doorverwijs-intake --
     bevestigd op ticket #2542 (4 aug 2026): een thread met direction='out'
-    naar intake@brandmr.nl met het vaste sjabloon."""
+    naar de doorverwijs-intake met het vaste sjabloon."""
     url = f"{DESK_BASE}/tickets/{ticket_id}/threads"
     req = urllib.request.Request(url, headers={
         'Authorization': f'Zoho-oauthtoken {access_token}',
@@ -66,7 +66,7 @@ def fetch_ticket_threads(access_token, ticket_id):
 
 def is_doorgezet_naar_brandmeester(threads):
     """Feit, geen AI-inschatting: True als er een uitgaande e-mail is naar
-    de BrandMR-intake (bevestigd patroon op ticket #2542)."""
+    de doorverwijs-intake (bevestigd patroon op ticket #2542)."""
     for th in threads:
         if th.get('direction') != 'out':
             continue
@@ -277,7 +277,7 @@ def main():
         if not klant:
             klant = t.get('email') or 'Onbekend'
 
-        # "Doorgezet naar BrandMR" is een feit (geen AI-inschatting), maar
+        # "Doorgezet naar doorverwijzing" is een feit (geen AI-inschatting), maar
         # NIET via het onbetrouwbare customFields-vinkje -- via de e-mail-
         # threads van het ticket (zie fetch_ticket_threads hierboven).
         threads = fetch_ticket_threads(access_token, t.get('id')) if DOORVERWIJS_MAILDOMEIN else []

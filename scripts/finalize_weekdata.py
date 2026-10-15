@@ -9,7 +9,7 @@ laptop aan staat). Dit script draait in .github/workflows/update-dagrapport.yml
 op elke cron-run, dus de hele keten (Zoho/Zoom/Granola-analyse + permanente
 weekData-historie) draait voortaan volledig op GitHub's servers.
 
-Zelfde veilige aanpak als tools/lancyr_safe_update.py: leest, valideert met
+Veilige aanpak: leest, valideert met
 Node.js voor EN na de wijziging, schrijft alleen bij succes. Idempotent --
 overschrijft gewoon dezelfde dag opnieuw als hij al bestaat.
 """
@@ -117,6 +117,8 @@ def upsert(content, date_key_raw, entry_json):
             sep = ','
         elif body_before_close.endswith('},'):
             sep = ''
+        elif body_before_close.endswith('{'):
+            sep = ''  # lege weekData (nieuwe klant): dit wordt de eerste dag
         else:
             raise ValueError(f'Onverwacht einde vorige entry: {body_before_close[-80:]!r}')
 

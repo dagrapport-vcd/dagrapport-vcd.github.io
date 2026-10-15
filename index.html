@@ -1270,7 +1270,7 @@ body {
 @media (max-width: 600px) {
   /* Topbar: laat de rechterkant wrappen i.p.v. van het scherm af te
      lopen (bevinding 27 aug 2026: Medewerker/Management-toggle en
-     Uitloggen vielen buiten beeld op mobiel) en houd het Lancyr-logo
+     Uitloggen vielen buiten beeld op mobiel) en houd het klantlogo
      zichtbaar (verkleind i.p.v. verborgen). */
   .topbar { height: auto; min-height: 56px; flex-wrap: wrap; row-gap: 8px; padding: 8px 16px; }
   .topbar-left { flex-wrap: wrap; gap: 10px; }
@@ -1510,7 +1510,7 @@ function _jargonFilter(t) {
 }
 
 // ======================== MANUAL ENTRIES (GitHub-synced) ========================
-const _GH_TOKEN = ''; // Verwijderd 2026-08-07: het vorige token stond hex-gedecodeerd leesbaar in deze publieke broncode en was al verlopen (sinds 2026-07-23). Nieuw token NIET hier hardcoden -- dat is een beveiligingslek op een publieke GitHub Pages-site. Regel handmatige invoer voortaan server-side (bv. GitHub Action met repo secret) of via tools/lancyr_safe_update.py.
+const _GH_TOKEN = ''; // Verwijderd 2026-08-07: het vorige token stond hex-gedecodeerd leesbaar in deze publieke broncode en was al verlopen (sinds 2026-07-23). Nieuw token NIET hier hardcoden -- dat is een beveiligingslek op een publieke GitHub Pages-site. Regel handmatige invoer voortaan server-side (bv. GitHub Action met repo secret) of via een eigen server-side script.
 const _GH_API = 'https://api.github.com/repos/' + CLIENT.repo.owner + '/' + CLIENT.repo.naam + '/contents/data/manual-entries.json';
 const _GH_RAW = 'https://raw.githubusercontent.com/' + CLIENT.repo.owner + '/' + CLIENT.repo.naam + '/main/data/manual-entries.json';
 let _ghData = {};
@@ -2169,7 +2169,7 @@ function toggleGemisteOproepen() {
 
 // ======================== ROLLEN / WEERGAVEN ========================
 // Twee weergaven (feedback management 3 okt 2026): "management" (totaaloverzicht en
-// verdelingen bovenaan -- ook wat Lancyr wil zien -- daarna team en operationeel) en
+// verdelingen bovenaan -- ook wat de klant wil zien -- daarna team en operationeel) en
 // "medewerker" (persoonlijk: hoe doe ik het, wie moet ik terugbellen, open tickets).
 
 // Interne overleggen (Daily Huddle, teamoverleg, ...) zijn geen klantgesprekken en
@@ -2874,10 +2874,10 @@ function renderDashboard(period) {
         ` : period === 'vandaag' ? `
         <div style="font-size:32px;font-weight:700;color:var(--navy)">${zohoBrandmeesterCount}</div>
         <div style="color:var(--ink-50);font-size:12px;margin-top:4px">van ${zohoTicketsTodayTotal} Zoho-tickets &middot; "Doorgezet naar ${CLIENT.doorverwijzing.zohoLabel}"</div>
-        ` : ((period === 'deze-week' || period === 'vorige-week') && BRANDMR_WEEK_HISTORY[period]) ? `
-        <div style="font-size:32px;font-weight:700;color:var(--navy)">${BRANDMR_WEEK_HISTORY[period].brandmeester} / ${BRANDMR_WEEK_HISTORY[period].totaal}</div>
-<div style="color:var(--ink-50);font-size:12px;margin-top:4px">${Math.round(BRANDMR_WEEK_HISTORY[period].brandmeester / BRANDMR_WEEK_HISTORY[period].totaal * 100)}% doorgezet naar BrandMR</div>
-        <div style="color:#b45309;font-size:11px;margin-top:2px">Eenmalige meting ${BRANDMR_WEEK_HISTORY[period].periode} &middot; niet live, wordt niet automatisch bijgewerkt</div>
+        ` : ((period === 'deze-week' || period === 'vorige-week') && DV_WEEK_HISTORY[period]) ? `
+        <div style="font-size:32px;font-weight:700;color:var(--navy)">${DV_WEEK_HISTORY[period].brandmeester} / ${DV_WEEK_HISTORY[period].totaal}</div>
+<div style="color:var(--ink-50);font-size:12px;margin-top:4px">${Math.round(DV_WEEK_HISTORY[period].brandmeester / DV_WEEK_HISTORY[period].totaal * 100)}% doorgezet naar ${CLIENT.doorverwijzing.zohoLabel}</div>
+        <div style="color:#b45309;font-size:11px;margin-top:2px">Eenmalige meting ${DV_WEEK_HISTORY[period].periode} &middot; niet live, wordt niet automatisch bijgewerkt</div>
         ` : `
 <div style="font-size:32px;font-weight:700;color:var(--ink-30)">&mdash;</div>
         <div style="color:var(--ink-50);font-size:12px;margin-top:4px">Alleen beschikbaar voor vandaag, vorige week en deze week (geen live Zoho-koppeling voor oudere periodes)</div>
@@ -3518,13 +3518,13 @@ let zoomCalledBackTotal = 0;
 let zoomDataAvailable = false;
 let zoomHistory = {};
 // EENMALIG handmatig ingevoerd op basis van een Zoho Desk-diagnose (14-15 aug 2026).
-// Methode: uitgaande e-mailthread naar intake@brandmr.nl, zie scripts/fetch_zoho_tickets.py
+// Methode: uitgaande e-mailthread naar de doorverwijs-intake, zie scripts/fetch_zoho_tickets.py
 //    NIET het onbetrouwbare customFields-vinkje. Geen live API-call vanuit de browser mogelijk
 // Zoho Desk heeft geen publieke CORS-toegang en de live pipeline bewaart geen historie.
 //    TODO Task 15: vervangen zodra de bredere historische Zoho data-pipeline is gebouwd.
 // Let op: 2026-08-12 toont 0 van de 0 tickets, vermoedelijk een Zoho-paginatiegat
 //    (normale werkdag), cijfer desondanks overgenomen zoals gerapporteerd door Zoho.
-const BRANDMR_WEEK_HISTORY = CLIENT.doorverwijzingHistorie;
+const DV_WEEK_HISTORY = CLIENT.doorverwijzingHistorie;
 
 function kanaalLabel(raw) {
   const map = {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch Lancyr Juridische Helpdesk meetings from Granola API, analyze each
+"""Fetch klant-helpdesk meetings from Granola API, analyze each
 conversation with the Anthropic API, and generate the full data/today.json
 for the dagrapport dashboard (matching the rich weekData schema).
 
@@ -488,7 +488,7 @@ def main():
         # verwijzing (rechtsbijstand_verwijzing) ook verkeerd_verbonden zou
         # zijn was FOUT -- gebruiker corrigeerde dit expliciet: bij een
         # Brandmeester-verwijzing was de beller wel degelijk bij de juiste
-        # afdeling (Lancyr besliste zelf tot doorverwijzing voor verdere
+        # afdeling (de klant besliste zelf tot doorverwijzing voor verdere
         # behandeling). Dat is dus GEEN verkeerd_verbonden. Zie de
         # bijgewerkte prompt-definitie hierboven voor het echte criterium
         # (geen inhoudelijk juridische vraag, bijv. autoverzekering/premie).
@@ -584,7 +584,7 @@ def main():
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    print(f"\nSaved {len(conversations)} Lancyr entries (score {score}) to {output_path}")
+    print(f"\nSaved {len(conversations)} entries (score {score}) to {output_path}")
 
 
 if __name__ == '__main__':
