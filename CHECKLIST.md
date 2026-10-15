@@ -1,7 +1,20 @@
 # Checklist Van Campen & Dijkstra
 
-Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `TODO` of een lege waarde in
-(`python3 tools/new_client.py check` laat zien welke nog open staan) en draai daarna
+## Snel invullen zodra je de gegevens hebt
+Alles in een keer (elk onderdeel is optioneel, je kunt het ook in delen doen); duurt een paar seconden:
+```bash
+python3 tools/new_client.py koppel \
+  --zoom-did "+31..." --zoom-ext "8.." --granola-map "Naam van de Granola-map" \
+  --repo "eigenaar/repo-naam" --supabase-url "https://....supabase.co" --supabase-key "sb_publishable_..." \
+  --team "Naam <mail@domein.nl>; Naam2 <mail2@domein.nl>" --management "a@domein.nl,b@domein.nl" \
+  --bedrijfsregels-bestand regels.txt --commit
+```
+`python3 tools/new_client.py check` laat zien wat nog open staat. Weet je het Zoom-nummer nog niet? Draai eenmaal de workflow
+"Diagnose Zoom call history": die toont in de log alle lijnen op het Zoom-account met hun nummer en extensie.
+Zolang iets nog niet is ingesteld slaan de scripts het netjes over (de runs falen niet en er wordt niets weggeschreven).
+
+## Handmatig in client.config.json
+Alles wat per klant verschilt staat in `client.config.json`. Vul de velden met `TODO` of een lege waarde in en draai daarna
 `python3 tools/new_client.py sync-config`.
 
 ## 1. GitHub

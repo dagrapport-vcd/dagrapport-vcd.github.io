@@ -318,6 +318,7 @@ def cmd_update(a):
     h = keep_weekdata(read(os.path.join(out, 'index.html')), old)
     write(os.path.join(out, 'index.html'), h)
     sync_index(out, cfg)
+    write(os.path.join(out, 'CHECKLIST.md'), checklist(cfg))
     print(f'{out} bijgewerkt met de code uit {template}. Config, logo en data zijn behouden.')
 
 
