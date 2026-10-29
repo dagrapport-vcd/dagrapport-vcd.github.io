@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from client_config import CFG, NAAM, DV, STAFF_NAMES  # noqa: E402
+from tijd import ams_offset, ams_nu  # noqa: E402
 
 GRANOLA_TOKEN = os.environ.get('GRANOLA_API_KEY', '')
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -42,7 +43,6 @@ FOLDER_NAME = CFG['granolaMap']
 GRANOLA_BASE = 'https://public-api.granola.ai/v1'
 ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
 OUTPUT_PATH = 'data/today.json'
-AMS_OFFSET = timedelta(hours=2)  # CEST — goed genoeg voor kantooruren
 
 GRANOLA_HEADERS = {
     'Authorization': f'Bearer {GRANOLA_TOKEN}',
@@ -190,7 +190,7 @@ def _note_created_date_str(note):
     created_at = note.get('created_at', '')
     try:
         dt_utc = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-        return (dt_utc + AMS_OFFSET).date().isoformat()
+        return (dt_utc + ams_offset(dt_utc)).date().isoformat()
     except Exception:
         return ''
 
@@ -377,7 +377,7 @@ def main():
         print("ERROR: ANTHROPIC_API_KEY not set")
         raise SystemExit(1)
 
-    today_ams = (datetime.now(timezone.utc) + AMS_OFFSET).date()
+    today_ams = ams_nu().date()
     today_str = today_ams.isoformat()
     target_date_str = GRANOLA_DATE or today_str
     is_backfill = target_date_str != today_str
@@ -387,6 +387,35 @@ def main():
               f"raakt data/today.json NIET aan.")
 
     notes = get_notes_for_date(target_date_str, is_backfill)
+    if is_backfill or os.environ.get('GRANOLA_DEBUG'):
+        for n in notes:
+            print(f"  [API] {n.get('created_at', '')[:16]} {(n.get('title') or '')[:60]}")
+
+    # Herstelrun (GRANOLA_MIN_NIEUW gezet): alleen doorgaan als Granola meer klantnotities heeft dan het dashboard
+    # voor die dag al toont, anders kost het nodeloos AI-aanroepen. Het aantal klantnotities waarop de vorige
+    # herstelrun al is gebaseerd staat in het backfillbestand ("kandidaten"), zodat een notitie die de AI terecht
+    # als intern overleg overslaat niet elke keer opnieuw een analyse oplevert.
+    kandidaten = None
+    min_nieuw = os.environ.get('GRANOLA_MIN_NIEUW', '').strip()
+    if is_backfill and min_nieuw != '':
+        kandidaten = 0
+        for note in notes:
+            titel = note.get('title') or ''
+            if is_failed_call(titel) or is_internal_meeting(titel):
+                continue
+            d = get_note_detail(note.get('id', ''))
+            if d and is_client_note(d):
+                kandidaten += 1
+        bekend = int(min_nieuw)
+        try:
+            with open(output_path, encoding='utf-8') as f:
+                bekend = max(bekend, int(json.load(f).get('kandidaten') or 0))
+        except Exception:
+            pass
+        if kandidaten <= bekend:
+            print(f"  {kandidaten} klantnotities in Granola, het dashboard heeft er al {bekend} verwerkt: niets nieuws.")
+            return
+        print(f"  {kandidaten} klantnotities in Granola tegen {bekend} verwerkt: dag wordt opnieuw geanalyseerd.")
     # Zoho-tickets van 'vandaag' zijn niet tijdsgeldig voor een historische
     # backfill-dag -- matchen zou willekeurige/foute klantnamen opleveren.
     zoho_tickets = load_zoho_tickets() if not is_backfill else []
@@ -423,7 +452,7 @@ def main():
 
         try:
             dt_utc = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            dt_ams = dt_utc + AMS_OFFSET
+            dt_ams = dt_utc + ams_offset(dt_utc)
             tijdstip = dt_ams.strftime('%H:%M')
         except Exception:
             tijdstip = '00:00'
@@ -570,6 +599,7 @@ def main():
 
     result = {
         "date": target_date_str,
+        **({"kandidaten": kandidaten} if kandidaten is not None else {}),
         "generated_at": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         "drukte": drukte,
         "gesprekken": total,

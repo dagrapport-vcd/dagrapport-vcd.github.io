@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from client_config import CFG  # noqa: E402
+from tijd import ams_offset, ams_nu  # noqa: E402
 
 CLIENT_ID = os.environ.get('ZOHO_CLIENT_ID', '')
 CLIENT_SECRET = os.environ.get('ZOHO_CLIENT_SECRET', '')
@@ -29,7 +30,6 @@ ACCOUNTS_URL = f'https://accounts.zoho.{ZOHO_REGIO}/oauth/v2/token'
 DOORVERWIJS_MAILDOMEIN = (CFG.get('doorverwijzing', {}).get('mailDomein') or '').lower()
 OUTPUT_PATH = 'data/zoho-tickets.json'
 HISTORY_PATH = 'data/zoho-ticket-history.json'
-AMS_OFFSET = timedelta(hours=2)
 
 
 def get_access_token():
@@ -192,7 +192,8 @@ def build_open_tickets(stats_tickets, limit=60):
             continue
         created_raw = t.get('createdTime', '')
         try:
-            aangemaakt = (datetime.fromisoformat(created_raw.replace('Z', '+00:00')) + AMS_OFFSET).strftime('%Y-%m-%d')
+            _c = datetime.fromisoformat(created_raw.replace('Z', '+00:00'))
+            aangemaakt = (_c + ams_offset(_c)).strftime('%Y-%m-%d')
         except Exception:
             aangemaakt = ''
         contact = t.get('contact') or {}
@@ -227,7 +228,7 @@ def compute_ticket_stats(nieuwe_vandaag_count, stats_tickets, cap_reached, today
             continue
         try:
             dt_utc = datetime.fromisoformat(closed_raw.replace('Z', '+00:00'))
-            dt_ams = dt_utc + AMS_OFFSET
+            dt_ams = dt_utc + ams_offset(dt_utc)
         except Exception:
             continue
         if dt_ams.date().isoformat() == today_str:
@@ -251,7 +252,7 @@ def main():
         print(f"ERROR: missing env vars: {', '.join(missing)}")
         raise SystemExit(1)
 
-    today_ams = (datetime.now(timezone.utc) + AMS_OFFSET).date()
+    today_ams = ams_nu().date()
     today_str = today_ams.isoformat()
 
     access_token = get_access_token()
@@ -262,7 +263,7 @@ def main():
         created_raw = t.get('createdTime', '')
         try:
             dt_utc = datetime.fromisoformat(created_raw.replace('Z', '+00:00'))
-            dt_ams = dt_utc + AMS_OFFSET
+            dt_ams = dt_utc + ams_offset(dt_utc)
         except Exception:
             continue
         if dt_ams.date().isoformat() != today_str:

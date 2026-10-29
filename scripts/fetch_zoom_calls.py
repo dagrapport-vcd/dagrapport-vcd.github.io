@@ -59,6 +59,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from client_config import CFG, staff_by_local  # noqa: E402
+from tijd import ams_offset, ams_nu  # noqa: E402
 
 ACCOUNT_ID = os.environ.get('ZOOM_ACCOUNT_ID', '')
 CLIENT_ID = os.environ.get('ZOOM_CLIENT_ID', '')
@@ -79,7 +80,6 @@ TOKEN_URL = 'https://zoom.us/oauth/token'
 API_BASE = 'https://api.zoom.us/v2'
 OUTPUT_PATH = 'data/zoom-calls.json'
 HISTORY_PATH = 'data/zoom-history.json'
-AMS_OFFSET = timedelta(hours=2)
 
 # Resultaatwaarden die aantonen dat een MENS de oproep heeft beantwoord.
 # Alleen deze tellen als "geen actie nodig"; alles wat hier niet in staat
@@ -178,7 +178,7 @@ def main():
         print(f"ERROR: missing env vars: {', '.join(missing)}")
         raise SystemExit(1)
 
-    today_str = (datetime.now(timezone.utc) + AMS_OFFSET).date().isoformat()
+    today_str = ams_nu().date().isoformat()
     # FIX 25 aug 2026: ZOOM_DATE staat via workflow_dispatch ALTIJD in de
     # omgeving (ook als lege string ''), dus os.environ.get(..., today_str)
     # viel niet terug op vandaag. 'or' behandelt zowel ontbrekend als leeg
@@ -395,7 +395,7 @@ def main():
         start_raw = m.get('start_time', '') or ''
         try:
             dt_utc = datetime.fromisoformat(start_raw.replace('Z', '+00:00'))
-            tijd = (dt_utc + AMS_OFFSET).strftime('%H:%M')
+            tijd = (dt_utc + ams_offset(dt_utc)).strftime('%H:%M')
         except Exception:
             tijd = start_raw
         record = {

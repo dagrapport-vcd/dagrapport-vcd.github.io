@@ -127,7 +127,61 @@ def upsert(content, date_key_raw, entry_json):
     return content
 
 
+def _js_eval(content, expr):
+    """Evalueert een JS-expressie met het weekData-blok en geeft de uitvoer terug."""
+    idx_wd = content.find('const weekData = {')
+    idx_mo = content.find('const MANUAL_OUTCOMES')
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+        f.write(content[idx_wd:idx_mo] + '\nconsole.log(' + expr + ');\n')
+        tmpfile = f.name
+    try:
+        r = subprocess.run([JS_RUNTIME, tmpfile], capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            raise ValueError(f'{JS_RUNTIME} faalde:\n{r.stderr}')
+        return r.stdout.strip()
+    finally:
+        os.unlink(tmpfile)
+
+
+def bestaand_aantal(datum):
+    """Aantal gesprekken dat weekData nu voor die datum heeft (0 als de dag ontbreekt)."""
+    with open(INDEX_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return int(_js_eval(content, f"((weekData['{datum}'] || {{}}).conversations || []).length"))
+
+
+def merge_backfill(path):
+    """Zet een herstelde dag (data/granola-backfill-<datum>.json) in weekData, maar alleen als die meer gesprekken
+    bevat dan wat er al staat. Zo kan een herstelrun een dag nooit kleiner maken."""
+    with open(path, 'r', encoding='utf-8') as f:
+        day = json.load(f)
+    date_key = day.get('date')
+    if not date_key or not day.get('generated_at'):
+        print(f'{path}: geen geldige dag, overgeslagen.')
+        return
+    with open(INDEX_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    validate_weekdata(content, require_nonempty=False)
+    nieuw = len(day.get('conversations', []))
+    bestaand = int(_js_eval(content, f"((weekData['{date_key}'] || {{}}).conversations || []).length"))
+    if nieuw <= bestaand:
+        print(f'weekData["{date_key}"] heeft al {bestaand} gesprekken, herstel levert {nieuw}: geen wijziging.')
+        return
+    new_content = upsert(content, date_key, build_entry(day))
+    validate_weekdata(new_content)
+    with open(INDEX_PATH, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print(f'weekData["{date_key}"] hersteld: {bestaand} -> {nieuw} gesprekken.')
+
+
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == '--bestaand-aantal':
+        print(bestaand_aantal(sys.argv[2]))
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == '--backfill':
+        if os.path.exists(sys.argv[2]):
+            merge_backfill(sys.argv[2])
+        return
     if not os.path.exists(TODAY_JSON):
         print(f'{TODAY_JSON} bestaat niet, niets te doen.')
         return

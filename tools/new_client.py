@@ -43,6 +43,8 @@ CODE_FILES = [
     'scripts/fetch_zoom_calls.py',
     'scripts/finalize_weekdata.py',
     'scripts/client_config.py',
+    'scripts/tijd.py',
+    'scripts/vorige_werkdagen.py',
     'tools/new_client.py',
     '.github/workflows/update-dagrapport.yml',
     '.github/workflows/zoom-backfill.yml',

@@ -25,6 +25,10 @@ on:
         description: 'Granola: datum (YYYY-MM-DD) om te herclassificeren -- schrijft naar data/granola-backfill-<datum>.json, NIET naar data/today.json (leeg = vandaag, normale run)'
         required: false
         default: ''
+      herstel_dagen:
+        description: 'Granola: aantal voorgaande werkdagen dat opnieuw wordt nagelopen op notities die pas later verschenen (leeg = normale run: 5 dagen, een keer per uur)'
+        required: false
+        default: ''
 
 # Runs mogen elkaar niet inhalen: GitHub's eigen schedule en cron-job.org starten
 # vaak tegelijk, en beide pushen dezelfde data/*.json -- de verliezer faalde dan op
@@ -87,6 +91,28 @@ jobs:
         # dagrapport-historie blijft voortaan bijgewerkt ongeacht of er
         # ook maar één laptop aan staat.
         run: python scripts/finalize_weekdata.py
+      - name: Herstel vorige werkdagen (Granola-notities die pas later verschijnen)
+        # De Granola-API toont gesprekken vaak pas uren of een dag na afloop (bevinding 29 okt 2026: op 19 okt zag
+        # de run overdag 0 gesprekken, terwijl Granola er 11 had). Daarom worden de voorgaande werkdagen nagelopen
+        # en wordt een dag alleen vervangen als Granola nu MEER klantnotities heeft dan het dashboard toont
+        # (scripts/finalize_weekdata.py --backfill neemt nooit minder over). Normaal een keer per uur om de
+        # AI- en API-kosten laag te houden; handmatig met 'herstel_dagen' elk moment.
+        if: ${{ !github.event.inputs.granola_datum }}
+        env:
+          GRANOLA_API_KEY: ${{ secrets.GRANOLA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HERSTEL_DAGEN: ${{ github.event.inputs.herstel_dagen }}
+        run: |
+          if [ -z "$HERSTEL_DAGEN" ] && [ "$(date -u +%M)" -ge 10 ]; then
+            echo "Herstel loopt een keer per uur (nu minuut $(date -u +%M)), overgeslagen."
+            exit 0
+          fi
+          for d in $(python scripts/vorige_werkdagen.py "${HERSTEL_DAGEN:-5}"); do
+            echo "== Herstel $d"
+            n=$(python scripts/finalize_weekdata.py --bestaand-aantal "$d") || { echo "WAARSCHUWING: kon aantal voor $d niet bepalen, overgeslagen."; continue; }
+            GRANOLA_DATE="$d" GRANOLA_MIN_NIEUW="$n" python scripts/analyze_granola_ai.py || echo "WAARSCHUWING: herstel voor $d mislukt, volgende dag."
+            python scripts/finalize_weekdata.py --backfill "data/granola-backfill-$d.json" || echo "WAARSCHUWING: samenvoegen voor $d mislukt."
+          done
       - name: Commit en push data/*.json + index.html
         run: |
           git config user.name  "VCD Bot"
